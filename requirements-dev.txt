@@ -1,0 +1,10 @@
+# Tooling only. Install requirements.txt first with --require-hashes; these packages never enter the
+# production image, so they intentionally live in a separate, version-pinned developer tool list.
+bandit==1.8.3
+httpx==0.28.1
+mypy==1.15.0
+pip-audit==2.8.0
+pytest==8.3.5
+pytest-cov==6.0.0
+ruff==0.11.2
+semgrep==1.114.0

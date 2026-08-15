@@ -1,0 +1,108 @@
+name: leakcheck
+
+x-app-security: &app-security
+  read_only: true
+  tmpfs:
+    - /tmp:rw,noexec,nosuid,size=64m
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+
+services:
+  postgres:
+    image: postgres:16.8-bookworm
+    environment:
+      POSTGRES_DB: leakcheck
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${LC_POSTGRES_PASSWORD:?set LC_POSTGRES_PASSWORD in .env}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d leakcheck"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 10s
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+      - /var/run/postgresql:rw,nosuid,size=8m
+    security_opt:
+      - no-new-privileges:true
+    # The official entrypoint begins as root solely to initialise the named volume, then execs the
+    # PostgreSQL server as its unprivileged `postgres` account.
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+    networks:
+      - internal
+
+  bootstrap:
+    build: .
+    command: ["alembic", "upgrade", "0001_bootstrap_roles"]
+    environment:
+      LC_MIGRATION_DATABASE_URL: postgresql+asyncpg://postgres:${LC_POSTGRES_PASSWORD:?set LC_POSTGRES_PASSWORD in .env}@postgres:5432/leakcheck
+      LC_MIGRATOR_DB_PASSWORD: ${LC_MIGRATOR_DB_PASSWORD:?set LC_MIGRATOR_DB_PASSWORD in .env}
+      LC_RUNTIME_DB_PASSWORD: ${LC_RUNTIME_DB_PASSWORD:?set LC_RUNTIME_DB_PASSWORD in .env}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    <<: *app-security
+    networks:
+      - internal
+
+  migrate:
+    build: .
+    command: ["alembic", "upgrade", "head"]
+    environment:
+      LC_MIGRATION_DATABASE_URL: postgresql+asyncpg://leakcheck_migrator:${LC_MIGRATOR_DB_PASSWORD:?set LC_MIGRATOR_DB_PASSWORD in .env}@postgres:5432/leakcheck
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+    <<: *app-security
+    networks:
+      - internal
+
+  web:
+    build: .
+    environment:
+      LC_ENVIRONMENT: ${LC_ENVIRONMENT:-development}
+      LC_DATABASE_URL: postgresql+asyncpg://leakcheck_runtime:${LC_RUNTIME_DB_PASSWORD:?set LC_RUNTIME_DB_PASSWORD in .env}@postgres:5432/leakcheck
+      LC_SESSION_SECRET: ${LC_SESSION_SECRET:?set LC_SESSION_SECRET in .env}
+      LC_DATA_KEY: ${LC_DATA_KEY:?set LC_DATA_KEY in .env}
+      LC_TRUSTED_HOSTS: ${LC_TRUSTED_HOSTS:-localhost,127.0.0.1}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    <<: *app-security
+    ports:
+      - "127.0.0.1:8000:8000"
+    networks:
+      - internal
+
+  worker:
+    build: .
+    command: ["python", "-m", "app.worker"]
+    environment:
+      LC_ENVIRONMENT: ${LC_ENVIRONMENT:-development}
+      LC_DATABASE_URL: postgresql+asyncpg://leakcheck_runtime:${LC_RUNTIME_DB_PASSWORD:?set LC_RUNTIME_DB_PASSWORD in .env}@postgres:5432/leakcheck
+      LC_SESSION_SECRET: ${LC_SESSION_SECRET:?set LC_SESSION_SECRET in .env}
+      LC_DATA_KEY: ${LC_DATA_KEY:?set LC_DATA_KEY in .env}
+      LC_TRUSTED_HOSTS: ${LC_TRUSTED_HOSTS:-localhost,127.0.0.1}
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    <<: *app-security
+    networks:
+      - internal
+
+networks:
+  internal:
+    internal: true
+
+volumes:
+  postgres-data:
