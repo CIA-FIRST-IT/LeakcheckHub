@@ -14,6 +14,10 @@ def valid_settings(**overrides: object) -> Settings:
     values: dict[str, object] = {
         "database_url": "postgresql+asyncpg://runtime:password@postgres/leakcheck",
         "session_secret": "s" * 32,
+        "google_client_id": "portal-client-id.apps.googleusercontent.com",
+        "google_client_secret": "google-client-secret",
+        "google_redirect_uri": "https://portal.example.test/auth/google/callback",
+        "google_workspace_domains": ("example.test",),
         "data_key": base64.urlsafe_b64encode(b"k" * 32).decode("ascii"),
         "trusted_hosts": ("testserver",),
     }
@@ -58,3 +62,19 @@ def test_rejects_local_host_in_production() -> None:
 def test_rejects_idle_timeout_longer_than_absolute_timeout() -> None:
     with pytest.raises(ValidationError, match="must not exceed the absolute TTL"):
         valid_settings(session_idle_ttl_seconds=61, session_absolute_ttl_seconds=60)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("google_client_id", "replace-with-google-oauth-client-id"),
+        ("google_client_secret", "replace-with-google-oauth-client-secret"),
+        ("google_redirect_uri", "http://portal.example.test/auth/google/callback"),
+        ("google_redirect_uri", "https://portal.example.test/not-the-callback"),
+        ("google_workspace_domains", ("*.example.test",)),
+        ("google_workspace_domains", ("replace-with-your-domain.example",)),
+    ],
+)
+def test_rejects_unsafe_google_oidc_configuration(field: str, value: object) -> None:
+    with pytest.raises(ValidationError):
+        valid_settings(**{field: value})

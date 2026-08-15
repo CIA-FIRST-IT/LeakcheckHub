@@ -16,6 +16,10 @@ def make_settings(environment: Environment = Environment.DEVELOPMENT) -> Setting
         environment=environment,
         database_url="postgresql+asyncpg://runtime:password@postgres/leakcheck",
         session_secret="s" * 32,
+        google_client_id="portal-client-id.apps.googleusercontent.com",
+        google_client_secret="c" * 32,
+        google_redirect_uri="https://portal.example.test/auth/google/callback",
+        google_workspace_domains=("example.test",),
         data_key=base64.urlsafe_b64encode(b"k" * 32).decode("ascii"),
         trusted_hosts=("portal.example.test",),
     )
