@@ -26,6 +26,8 @@ def test_accepts_valid_settings() -> None:
 
     assert settings.environment is Environment.DEVELOPMENT
     assert settings.trusted_hosts == ("testserver",)
+    assert settings.session_idle_ttl_seconds == 60 * 60
+    assert settings.session_absolute_ttl_seconds == 12 * 60 * 60
 
 
 @pytest.mark.parametrize(
@@ -51,3 +53,8 @@ def test_rejects_wildcard_host_allow_list() -> None:
 def test_rejects_local_host_in_production() -> None:
     with pytest.raises(ValidationError, match="must not contain local hosts"):
         valid_settings(environment=Environment.PRODUCTION, trusted_hosts=("localhost",))
+
+
+def test_rejects_idle_timeout_longer_than_absolute_timeout() -> None:
+    with pytest.raises(ValidationError, match="must not exceed the absolute TTL"):
+        valid_settings(session_idle_ttl_seconds=61, session_absolute_ttl_seconds=60)
