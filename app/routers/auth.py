@@ -7,10 +7,12 @@ import json
 from datetime import UTC, datetime
 from typing import cast
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import PlainTextResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.auth.authorization import get_session_manager_for_request
+from app.auth.csrf import CSRFProtector
 from app.auth.google import (
     OAUTH_TRANSACTION_COOKIE_NAME,
     GoogleOIDC,
@@ -31,16 +33,29 @@ async def get_google_oidc(request: Request) -> GoogleOIDC:
     return cast(GoogleOIDC, request.app.state.google_oidc)
 
 
-async def get_session_manager_for_request(request: Request) -> SessionManager:
-    """Read the per-app session manager configured with the matching secret."""
-
-    return cast(SessionManager, request.app.state.session_manager)
-
-
 async def get_local_authenticator(request: Request) -> LocalAuthenticator:
     """Read the per-app local authentication service with its matching security settings."""
 
     return cast(LocalAuthenticator, request.app.state.local_authenticator)
+
+
+async def get_csrf_protector(request: Request) -> CSRFProtector:
+    """Read the CSRF issuer configured with the matching session-secret-derived key."""
+
+    return cast(CSRFProtector, request.app.state.csrf_protector)
+
+
+@router.get("/auth/csrf", response_model=None)
+async def issue_csrf_token(
+    request: Request,
+    csrf_protector: CSRFProtector = Depends(get_csrf_protector),  # noqa: B008
+) -> Response:
+    """Set a token readable by same-origin browser code before an unsafe request."""
+
+    response = Response(status_code=204)
+    csrf_protector.issue(response, session_token=request.cookies.get(SESSION_COOKIE_NAME))
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @router.get("/auth/google/login", response_model=None)
@@ -74,6 +89,7 @@ async def finish_google_login(
     db: AsyncSession = Depends(get_db_session),  # noqa: B008
     google_oidc: GoogleOIDC = Depends(get_google_oidc),  # noqa: B008
     session_manager: SessionManager = Depends(get_session_manager_for_request),  # noqa: B008
+    csrf_protector: CSRFProtector = Depends(get_csrf_protector),  # noqa: B008
     code: str | None = None,
     state: str | None = None,
     error: str | None = None,
@@ -113,6 +129,7 @@ async def finish_google_login(
 
     response = RedirectResponse("/", status_code=303)
     session_manager.set_cookie(response, issued)
+    csrf_protector.issue(response, session_token=issued.token)
     _clear_transaction_cookie(response)
     response.headers["Cache-Control"] = "no-store"
     return response
@@ -124,6 +141,7 @@ async def finish_local_login(
     db: AsyncSession = Depends(get_db_session),  # noqa: B008
     local_authenticator: LocalAuthenticator = Depends(get_local_authenticator),  # noqa: B008
     session_manager: SessionManager = Depends(get_session_manager_for_request),  # noqa: B008
+    csrf_protector: CSRFProtector = Depends(get_csrf_protector),  # noqa: B008
 ) -> RedirectResponse | PlainTextResponse:
     """Complete password-and-TOTP login without reflecting any submitted credential material."""
 
@@ -150,6 +168,7 @@ async def finish_local_login(
     )
     response = RedirectResponse("/", status_code=303)
     session_manager.set_cookie(response, issued)
+    csrf_protector.issue(response, session_token=issued.token)
     response.headers["Cache-Control"] = "no-store"
     return response
 

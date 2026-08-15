@@ -41,6 +41,10 @@ once for an authenticator app. It deliberately has no password command-line opti
 not enter shell history or process arguments. Local login is available at `POST /auth/local/login` and
 requires the account email, password, and a current six-digit TOTP code over HTTPS.
 
+Before any state-changing browser request, retrieve `GET /auth/csrf`, read the host-only
+`__Host-leakcheck-csrf` cookie from same-origin code, and return its value in the `X-CSRF-Token`
+header. The token is signed and bound to the active session, then rotated after sign-in.
+
 ## Quality checks
 
 The CI workflow is authoritative. Locally, with Python 3.12 and dependencies installed:

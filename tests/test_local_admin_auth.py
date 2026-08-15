@@ -15,6 +15,7 @@ from argon2 import PasswordHasher
 from fastapi import Response
 from sqlalchemy.dialects import postgresql
 
+from app.auth.csrf import CSRF_COOKIE_NAME, CSRF_HEADER_NAME
 from app.auth.local import (
     LocalAuthenticationError,
     LocalAuthenticationResult,
@@ -355,11 +356,19 @@ async def test_local_login_route_rotates_session_without_reflecting_credentials(
         base_url="https://portal.example.test",
         follow_redirects=False,
     ) as client:
+        csrf_response = await client.get("/auth/csrf")
+        csrf_token = csrf_response.cookies.get(CSRF_COOKIE_NAME)
         response = await client.post(
             "/auth/local/login",
             json={"username": user.email, "password": TEST_PASSWORD, "totp_code": "123456"},
+            headers={CSRF_HEADER_NAME: csrf_token},
         )
+        rotated_csrf_token = response.cookies.get(CSRF_COOKIE_NAME)
 
+    assert csrf_response.status_code == 204
+    assert csrf_token is not None
+    assert rotated_csrf_token is not None
+    assert rotated_csrf_token != csrf_token
     assert response.status_code == 303
     assert response.headers["location"] == "/"
     assert "HttpOnly" in response.headers["set-cookie"]
@@ -386,11 +395,16 @@ async def test_local_login_route_returns_one_non_reflecting_failure_for_bad_payl
     async with httpx.AsyncClient(
         transport=transport, base_url="https://portal.example.test"
     ) as client:
+        csrf_response = await client.get("/auth/csrf")
+        csrf_token = csrf_response.cookies.get(CSRF_COOKIE_NAME)
         response = await client.post(
             "/auth/local/login",
             json={"username": "admin@example.test", "password": TEST_PASSWORD, "totp_code": 123456},
+            headers={CSRF_HEADER_NAME: csrf_token},
         )
 
+    assert csrf_response.status_code == 204
+    assert csrf_token is not None
     assert response.status_code == 401
     assert response.text == "Local authentication failed."
     assert response.headers["cache-control"] == "no-store"
