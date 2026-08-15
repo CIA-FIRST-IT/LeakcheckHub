@@ -53,6 +53,11 @@ class Settings(BaseSettings):
     session_secret: SecretStr
     session_idle_ttl_seconds: Annotated[int, Field(ge=1)] = 60 * 60
     session_absolute_ttl_seconds: Annotated[int, Field(ge=1)] = 12 * 60 * 60
+    admin_login_max_failures: Annotated[int, Field(ge=1, le=20)] = 5
+    admin_login_lockout_seconds: Annotated[int, Field(ge=60, le=24 * 60 * 60)] = 15 * 60
+    admin_login_ip_max_failures: Annotated[int, Field(ge=1, le=100)] = 10
+    admin_login_ip_window_seconds: Annotated[int, Field(ge=60, le=24 * 60 * 60)] = 15 * 60
+    admin_login_ip_lockout_seconds: Annotated[int, Field(ge=60, le=24 * 60 * 60)] = 15 * 60
     google_client_id: str
     google_client_secret: SecretStr
     google_redirect_uri: str

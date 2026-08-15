@@ -27,6 +27,20 @@ ID, client secret, redirect URI, and one or more Workspace domains in `.env`; st
 placeholder, wildcard, or unsafe values. The web deployment needs outbound HTTPS only to Google's OIDC
 hosts: `accounts.google.com`, `oauth2.googleapis.com`, and `www.googleapis.com`.
 
+## Super-admin bootstrap
+
+Super-admins are local accounts only: their email/password login always also requires TOTP. They are
+never self-registered. After the stack has migrated, run the following from an operator terminal:
+
+```sh
+docker compose exec web python -m app.create_superadmin --email admin@example.test --display-name "SOC Admin"
+```
+
+The command prompts twice for a 15+ character password and prints one TOTP provisioning URI exactly
+once for an authenticator app. It deliberately has no password command-line option, so passwords do
+not enter shell history or process arguments. Local login is available at `POST /auth/local/login` and
+requires the account email, password, and a current six-digit TOTP code over HTTPS.
+
 ## Quality checks
 
 The CI workflow is authoritative. Locally, with Python 3.12 and dependencies installed:

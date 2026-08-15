@@ -9,6 +9,7 @@ from fastapi import FastAPI
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from app.auth.google import GoogleOIDC
+from app.auth.local import LocalAuthenticator
 from app.auth.session import SessionManager
 from app.config import Settings, get_settings
 from app.middleware import SecurityHeadersMiddleware
@@ -35,6 +36,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     )
     app.state.settings = resolved_settings
     app.state.google_oidc = GoogleOIDC(resolved_settings)
+    app.state.local_authenticator = LocalAuthenticator(resolved_settings)
     app.state.session_manager = SessionManager(resolved_settings)
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=list(resolved_settings.trusted_hosts))
     app.add_middleware(SecurityHeadersMiddleware, environment=resolved_settings.environment)

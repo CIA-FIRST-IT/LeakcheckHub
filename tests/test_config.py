@@ -32,6 +32,8 @@ def test_accepts_valid_settings() -> None:
     assert settings.trusted_hosts == ("testserver",)
     assert settings.session_idle_ttl_seconds == 60 * 60
     assert settings.session_absolute_ttl_seconds == 12 * 60 * 60
+    assert settings.admin_login_max_failures == 5
+    assert settings.admin_login_ip_max_failures == 10
 
 
 @pytest.mark.parametrize(
@@ -62,6 +64,21 @@ def test_rejects_local_host_in_production() -> None:
 def test_rejects_idle_timeout_longer_than_absolute_timeout() -> None:
     with pytest.raises(ValidationError, match="must not exceed the absolute TTL"):
         valid_settings(session_idle_ttl_seconds=61, session_absolute_ttl_seconds=60)
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("admin_login_max_failures", 0),
+        ("admin_login_lockout_seconds", 59),
+        ("admin_login_ip_max_failures", 0),
+        ("admin_login_ip_window_seconds", 59),
+        ("admin_login_ip_lockout_seconds", 59),
+    ],
+)
+def test_rejects_unsafe_local_admin_throttle_configuration(field: str, value: int) -> None:
+    with pytest.raises(ValidationError):
+        valid_settings(**{field: value})
 
 
 @pytest.mark.parametrize(
