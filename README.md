@@ -19,6 +19,14 @@ The `migrate` service is the only development service that connects as the Postg
 superuser. Its initial Alembic migration creates the separate, non-superuser migration and runtime
 roles. Web and worker processes use the runtime role only.
 
+## Google sign-in
+
+Create a confidential Web OAuth client in Google Cloud and register the exact
+`LC_GOOGLE_REDIRECT_URI` value (normally `https://<portal-host>/auth/google/callback`). Set the client
+ID, client secret, redirect URI, and one or more Workspace domains in `.env`; startup rejects missing,
+placeholder, wildcard, or unsafe values. The web deployment needs outbound HTTPS only to Google's OIDC
+hosts: `accounts.google.com`, `oauth2.googleapis.com`, and `www.googleapis.com`.
+
 ## Quality checks
 
 The CI workflow is authoritative. Locally, with Python 3.12 and dependencies installed:
@@ -35,4 +43,3 @@ pytest
 
 `requirements.txt` is the production lock. `requirements-dev.txt` adds tools used exclusively by
 quality checks. No test may contact the live LeakCheck API.
-

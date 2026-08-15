@@ -8,8 +8,11 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from starlette.middleware.trustedhost import TrustedHostMiddleware
 
+from app.auth.google import GoogleOIDC
+from app.auth.session import SessionManager
 from app.config import Settings, get_settings
 from app.middleware import SecurityHeadersMiddleware
+from app.routers.auth import router as auth_router
 from app.routers.health import router as health_router
 
 
@@ -31,7 +34,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         lifespan=lifespan,
     )
     app.state.settings = resolved_settings
+    app.state.google_oidc = GoogleOIDC(resolved_settings)
+    app.state.session_manager = SessionManager(resolved_settings)
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=list(resolved_settings.trusted_hosts))
     app.add_middleware(SecurityHeadersMiddleware, environment=resolved_settings.environment)
+    app.include_router(auth_router)
     app.include_router(health_router)
     return app
