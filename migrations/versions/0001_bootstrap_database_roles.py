@@ -60,6 +60,9 @@ def upgrade() -> None:
         "END $$"
     )
     connection.exec_driver_sql(f"GRANT CONNECT ON DATABASE {quoted_database} TO leakcheck_migrator")
+    # `citext` is a trusted extension. PostgreSQL requires CREATE on the database to install it;
+    # migration code otherwise remains confined to the public schema.
+    connection.exec_driver_sql(f"GRANT CREATE ON DATABASE {quoted_database} TO leakcheck_migrator")
     connection.exec_driver_sql(f"GRANT CONNECT ON DATABASE {quoted_database} TO leakcheck_runtime")
     connection.exec_driver_sql("REVOKE CREATE ON SCHEMA public FROM PUBLIC")
     connection.exec_driver_sql("GRANT USAGE, CREATE ON SCHEMA public TO leakcheck_migrator")
