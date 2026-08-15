@@ -129,6 +129,28 @@ class AdminCredential(Base):
     user: Mapped[User] = relationship(back_populates="admin_credentials", lazy="raise")
 
 
+class AdminLoginRateLimit(Base):
+    """A durable, keyed rate-limit bucket for local super-admin authentication."""
+
+    __tablename__ = "admin_login_rate_limits"
+    __table_args__ = (
+        CheckConstraint("attempts >= 0", name="ck_admin_login_rate_limits_attempts"),
+        CheckConstraint(
+            "octet_length(ip_hash) = 32", name="ck_admin_login_rate_limits_ip_hash_length"
+        ),
+    )
+
+    ip_hash: Mapped[bytes] = mapped_column(primary_key=True)
+    window_started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    attempts: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+        default=0,
+        server_default="0",
+    )
+    blocked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
 class Session(Base):
     """A server-side session keyed by a SHA-256 token hash, never a cleartext token."""
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.schema import CreateTable
 
-from app.models import AdminCredential, Session, User, UserRole, UserSource
+from app.models import AdminCredential, AdminLoginRateLimit, Session, User, UserRole, UserSource
 
 
 def test_user_enums_use_stable_lowercase_values() -> None:
@@ -48,3 +48,16 @@ def test_sessions_store_only_hash_material_and_expiry_constraints() -> None:
     assert "CONSTRAINT ck_sessions_ip_hash_length CHECK (octet_length(ip_hash) = 32)" in statement
     assert "CONSTRAINT ck_sessions_ua_hash_length CHECK (octet_length(ua_hash) = 32)" in statement
     assert "token" not in Session.__table__.columns
+
+
+def test_local_login_ip_throttle_stores_only_a_keyed_digest() -> None:
+    statement = str(
+        CreateTable(AdminLoginRateLimit.__table__).compile(dialect=postgresql.dialect())
+    )
+
+    assert "ip_hash BYTEA NOT NULL" in statement
+    assert (
+        "CONSTRAINT ck_admin_login_rate_limits_ip_hash_length CHECK (octet_length(ip_hash) = 32)"
+        in statement
+    )
+    assert "ip_address" not in AdminLoginRateLimit.__table__.columns
