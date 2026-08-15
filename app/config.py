@@ -8,7 +8,7 @@ from enum import StrEnum
 from functools import lru_cache
 from typing import Annotated, Self
 
-from pydantic import SecretStr, field_validator, model_validator
+from pydantic import Field, SecretStr, field_validator, model_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
@@ -48,6 +48,8 @@ class Settings(BaseSettings):
     environment: Environment = Environment.DEVELOPMENT
     database_url: str
     session_secret: SecretStr
+    session_idle_ttl_seconds: Annotated[int, Field(ge=1)] = 60 * 60
+    session_absolute_ttl_seconds: Annotated[int, Field(ge=1)] = 12 * 60 * 60
     data_key: SecretStr
     trusted_hosts: Annotated[tuple[str, ...], NoDecode] = ("localhost", "127.0.0.1")
 
@@ -93,6 +95,8 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def require_explicit_production_hosts(self) -> Self:
+        if self.session_idle_ttl_seconds > self.session_absolute_ttl_seconds:
+            raise ValueError("LC_SESSION_IDLE_TTL_SECONDS must not exceed the absolute TTL")
         if not self.trusted_hosts or "*" in self.trusted_hosts:
             raise ValueError("LC_TRUSTED_HOSTS must be a non-empty explicit host allow-list")
         if self.environment is Environment.PRODUCTION and any(

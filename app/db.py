@@ -28,12 +28,13 @@ def get_async_session_factory() -> async_sessionmaker[AsyncSession]:
 
 
 async def get_db_session() -> AsyncIterator[AsyncSession]:
-    """Yield one transaction-aware session for a request."""
+    """Yield one transaction-aware session and commit only a successful request."""
 
     session_factory = get_async_session_factory()
     async with session_factory() as session:
         try:
             yield session
+            await session.commit()
         except Exception:
             await session.rollback()
             raise
