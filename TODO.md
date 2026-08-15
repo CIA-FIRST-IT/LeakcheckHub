@@ -23,12 +23,12 @@ any milestone.** IDs are stable — never renumber them, append instead.
 
 ## M0 — Scaffold & security baseline
 
-- [ ] `M0-01` Repo skeleton, hash-pinned `requirements.txt`, `pyproject.toml` (ruff + mypy config)
-- [ ] `M0-02` `app/config.py` with pydantic-settings, fail-fast secret validation, `.env.example`
-- [ ] `M0-03` Docker Compose: web, worker, postgres; non-root user, read-only root filesystem
-- [ ] `M0-04` `app/main.py` app factory + security-headers/CSP middleware + `/healthz`
-- [ ] `M0-05` Alembic wired; bootstrap migration creating the migration and runtime DB roles
-- [ ] `M0-06` CI pipeline: ruff, mypy, bandit, semgrep, pip-audit, pytest
+- [x] `M0-01` Repo skeleton, hash-pinned `requirements.txt`, `pyproject.toml` (ruff + mypy config)
+- [x] `M0-02` `app/config.py` with pydantic-settings, fail-fast secret validation, `.env.example`
+- [x] `M0-03` Docker Compose: web, worker, postgres; non-root user, read-only root filesystem
+- [x] `M0-04` `app/main.py` app factory + security-headers/CSP middleware + `/healthz`
+- [x] `M0-05` Alembic wired; bootstrap migration creating the migration and runtime DB roles
+- [x] `M0-06` CI pipeline: ruff, mypy, bandit, semgrep, pip-audit, pytest
 
 **Done when:** `docker compose up` serves a hardened empty app and CI is green.
 
