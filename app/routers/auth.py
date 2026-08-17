@@ -115,19 +115,28 @@ async def landing_page(
         return RedirectResponse(destinations[verified.user.role], status_code=303)
     return HTMLResponse(
         """<!doctype html><html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width"><title>LeakCheck sign in</title></head>
-<body><main><h1>LeakCheck sign in</h1>
-<form id="local-login"><label>Email
-<input name="username" type="email" autocomplete="username" required></label>
-<label>Password
-<input name="password" type="password" autocomplete="current-password" required></label>
-<label>Authenticator code
-<input name="totp_code" inputmode="numeric" autocomplete="one-time-code"></label>
-<p>Leave the authenticator code blank until MFA has been enabled for this account.</p>
-<button type="submit">Sign in</button></form>
-<p><a href="/auth/google/login">Sign in with Google</a></p>
-<output id="login-result"></output><script src="/static/login.js" defer></script>
-</main></body></html>""",
+<meta name="viewport" content="width=device-width"><title>Sign in · LeakCheck Hub</title>
+<link rel="stylesheet" href="/static/auth.css?v=2"></head>
+<body class="auth-page"><main class="auth-shell"><section class="brand-panel">
+<div class="brand-mark" aria-hidden="true">LC</div><p class="eyebrow">CIA FIRST IT</p>
+<h1>Find exposed credentials before attackers do.</h1>
+<p class="brand-copy">A focused security workspace for breach monitoring, investigation,
+and remediation.</p><div class="signal" aria-hidden="true"><span></span><span></span><span></span>
+</div></section><section class="login-panel"><div class="login-card">
+<p class="eyebrow">SECURE ACCESS</p><h2>Welcome back</h2>
+<p class="subtitle">Sign in to continue to LeakCheck Hub.</p>
+<form id="local-login" class="auth-form"><label>Email address
+<input name="username" type="email" autocomplete="username" placeholder="admin@example.com"
+required>
+</label><label>Password<input name="password" type="password" autocomplete="current-password"
+placeholder="Enter your password" required></label>
+<label>Authenticator code <span class="optional">Optional until enabled</span>
+<input name="totp_code" inputmode="numeric" autocomplete="one-time-code" maxlength="6"
+placeholder="000000"></label><button type="submit">Sign in</button></form>
+<output id="login-result" class="form-status"></output><div class="divider"><span>or</span></div>
+<a class="google-button" href="/auth/google/login">Continue with Google</a>
+<p class="security-note">Protected by encrypted sessions and role-based access.</p>
+</div></section></main><script src="/static/login.js?v=2" defer></script></body></html>""",
         headers={"Cache-Control": "no-store"},
     )
 
@@ -326,7 +335,8 @@ async def mfa_setup_page(
         return HTMLResponse("MFA is managed by your sign-in provider.", status_code=400)
     if credential.totp_enabled_at is not None:
         return HTMLResponse(
-            "<!doctype html><html><body><main><h1>Account security</h1>"
+            '<!doctype html><html><head><link rel="stylesheet" href="/static/auth.css?v=2"></head>'
+            '<body class="auth-page"><main class="setup-card"><h1>Account security</h1>'
             '<p>MFA is enabled for this account.</p><p><a href="/">Return to LeakCheck</a></p>'
             "</main></body></html>",
             headers={"Cache-Control": "no-store"},
@@ -350,7 +360,9 @@ async def mfa_setup_page(
     return HTMLResponse(
         "".join(
             (
-                "<!doctype html><html><body><main><h1>Set up MFA</h1>",
+                '<!doctype html><html><head><link rel="stylesheet" '
+                'href="/static/auth.css?v=2"></head>'
+                '<body class="auth-page"><main class="setup-card"><h1>Set up MFA</h1>',
                 "<p>Add this account to your authenticator, then enter a generated code "
                 "to enable MFA.</p>",
                 f'<p><a href="{html.escape(uri, quote=True)}">Open in authenticator</a></p>',
@@ -358,7 +370,7 @@ async def mfa_setup_page(
                 '<form id="mfa-form"><label>Authenticator code <input name="totp_code" ',
                 'inputmode="numeric" autocomplete="one-time-code" required></label>',
                 '<button type="submit">Enable MFA</button></form><output id="mfa-result"></output>',
-                '<script src="/static/mfa-setup.js" defer></script></main></body></html>',
+                '<script src="/static/mfa-setup.js?v=2" defer></script></main></body></html>',
             )
         ),
         headers={"Cache-Control": "no-store"},
