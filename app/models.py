@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from enum import StrEnum
 
 from sqlalchemy import (
@@ -12,6 +12,7 @@ from sqlalchemy import (
     DateTime,
     Enum,
     ForeignKey,
+    Index,
     Integer,
     LargeBinary,
     String,
@@ -41,6 +42,45 @@ class UserSource(StrEnum):
     GOOGLE = "google"
     WORKSPACE_SYNC = "workspace_sync"
     MANUAL = "manual"
+
+
+class SubjectKind(StrEnum):
+    EMAIL = "email"
+    DOMAIN = "domain"
+    USERNAME = "username"
+    PHONE = "phone"
+    ORIGIN = "origin"
+    PASSWORD = "password"  # noqa: S105  # nosec B105
+
+
+class ScanTrigger(StrEnum):
+    MANUAL = "manual"
+    SELF = "self"
+    BATCH = "batch"
+    SCHEDULED = "scheduled"
+
+
+class ScanStatus(StrEnum):
+    PENDING = "pending"
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+
+
+class FindingSeverity(StrEnum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+
+class FindingEventType(StrEnum):
+    DISCOVERED = "discovered"
+    REMEDIATED = "remediated"
+    UNREMEDIATED = "unremediated"
+    RE_LEAKED = "re_leaked"
+    PASSWORD_VIEWED = "password_viewed"  # noqa: S105  # nosec B105
+    NOTIFIED = "notified"
+    ALERTED = "alerted"
 
 
 def _enum_values(enum_type: type[StrEnum]) -> list[str]:
@@ -235,6 +275,190 @@ class AuditLog(Base):
     target_type: Mapped[str | None] = mapped_column(String(64))
     target_id: Mapped[str | None] = mapped_column(String(255))
     ip_hash: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    meta: Mapped[dict[str, object]] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default="{}"
+    )
+
+
+class Subject(Base):
+    """A normalized, scannable identifier; cleartext searched passwords are never persisted."""
+
+    __tablename__ = "subjects"
+    __table_args__ = (UniqueConstraint("kind", "value_norm", name="uq_subjects_kind_value_norm"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    kind: Mapped[SubjectKind] = mapped_column(
+        Enum(SubjectKind, name="subject_kind", values_callable=_enum_values), nullable=False
+    )
+    value_norm: Mapped[str] = mapped_column(String(4096), nullable=False)
+    value_display: Mapped[str] = mapped_column(String(4096), nullable=False)
+    first_scanned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_scanned_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    linked_user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", name="fk_subjects_linked_user_id"), index=True
+    )
+
+
+class Scan(Base):
+    """One bounded scan attempt, including the approximate vendor quota observation."""
+
+    __tablename__ = "scans"
+    __table_args__ = (
+        CheckConstraint("result_count >= 0", name="ck_scans_result_count"),
+        CheckConstraint("new_count >= 0", name="ck_scans_new_count"),
+        CheckConstraint("quota IS NULL OR quota >= 0", name="ck_scans_quota"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    subject_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("subjects.id", name="fk_scans_subject_id"), index=True
+    )
+    requested_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", name="fk_scans_requested_by"), index=True
+    )
+    trigger: Mapped[ScanTrigger] = mapped_column(
+        Enum(ScanTrigger, name="scan_trigger", values_callable=_enum_values), nullable=False
+    )
+    status: Mapped[ScanStatus] = mapped_column(
+        Enum(ScanStatus, name="scan_status", values_callable=_enum_values),
+        nullable=False,
+        default=ScanStatus.PENDING,
+        server_default=ScanStatus.PENDING.value,
+    )
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    result_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    new_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    quota: Mapped[int | None] = mapped_column(Integer)
+    truncated: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    error: Mapped[str | None] = mapped_column(Text)
+
+
+class BreachSource(Base):
+    """Deduplicated source metadata, with a non-null date sentinel for stable uniqueness."""
+
+    __tablename__ = "breach_sources"
+    __table_args__ = (
+        UniqueConstraint("name_norm", "breach_date_norm", name="uq_breach_sources_identity"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(1024), nullable=False)
+    name_norm: Mapped[str] = mapped_column(String(1024), nullable=False)
+    breach_date: Mapped[date | None] = mapped_column()
+    breach_date_norm: Mapped[date] = mapped_column(nullable=False)
+    unverified: Mapped[bool | None] = mapped_column(Boolean)
+    passwordless: Mapped[bool | None] = mapped_column(Boolean)
+    compilation: Mapped[bool | None] = mapped_column(Boolean)
+    extra: Mapped[dict[str, object]] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default="{}"
+    )
+
+
+class Finding(Base):
+    """One distinct exposure; credential plaintext exists only inside AES-GCM ciphertext."""
+
+    __tablename__ = "findings"
+    __table_args__ = (
+        UniqueConstraint("fingerprint", name="uq_findings_fingerprint"),
+        CheckConstraint("octet_length(fingerprint) = 32", name="ck_findings_fingerprint_length"),
+        CheckConstraint(
+            "identity_key IS NULL OR octet_length(identity_key) = 32",
+            name="ck_findings_identity_key_length",
+        ),
+        CheckConstraint(
+            "password_sha256 IS NULL OR octet_length(password_sha256) = 32",
+            name="ck_findings_password_sha256_length",
+        ),
+        CheckConstraint(
+            "password_nonce IS NULL OR octet_length(password_nonce) = 12",
+            name="ck_findings_password_nonce_length",
+        ),
+        CheckConstraint(
+            "password_len IS NULL OR password_len >= 0", name="ck_findings_password_len"
+        ),
+        Index("ix_findings_subject_remediation", "subject_id", "remediated_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    subject_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("subjects.id", name="fk_findings_subject_id"), index=True
+    )
+    source_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("breach_sources.id", name="fk_findings_source_id"),
+        index=True,
+    )
+    email: Mapped[str | None] = mapped_column(String(320))
+    username: Mapped[str | None] = mapped_column(String(1024))
+    phone: Mapped[str | None] = mapped_column(String(64))
+    origin: Mapped[str | None] = mapped_column(String(4096))
+    identity_key: Mapped[bytes | None] = mapped_column(LargeBinary)
+    password_ciphertext: Mapped[bytes | None] = mapped_column(
+        LargeBinary, deferred=True, deferred_raiseload=True
+    )
+    password_nonce: Mapped[bytes | None] = mapped_column(
+        LargeBinary, deferred=True, deferred_raiseload=True
+    )
+    password_sha256: Mapped[bytes | None] = mapped_column(LargeBinary)
+    password_mask: Mapped[str | None] = mapped_column(String(1024))
+    password_len: Mapped[int | None] = mapped_column(Integer)
+    password_charset: Mapped[str | None] = mapped_column(String(255))
+    fields: Mapped[list[str]] = mapped_column(
+        JSONB, nullable=False, default=list, server_default="[]"
+    )
+    raw: Mapped[dict[str, object]] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default="{}"
+    )
+    fingerprint: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    severity: Mapped[FindingSeverity] = mapped_column(
+        Enum(FindingSeverity, name="finding_severity", values_callable=_enum_values),
+        nullable=False,
+        default=FindingSeverity.MEDIUM,
+        server_default=FindingSeverity.MEDIUM.value,
+    )
+    first_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    last_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    remediated_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    remediated_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", name="fk_findings_remediated_by")
+    )
+    remediation_note: Mapped[str | None] = mapped_column(Text)
+    superseded_by_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("findings.id", name="fk_findings_superseded_by_id")
+    )
+    notified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class FindingEvent(Base):
+    """Append-only finding state transition history."""
+
+    __tablename__ = "finding_events"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    finding_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("findings.id", name="fk_finding_events_finding_id"),
+        index=True,
+    )
+    event: Mapped[FindingEventType] = mapped_column(
+        Enum(FindingEventType, name="finding_event_type", values_callable=_enum_values),
+        nullable=False,
+    )
+    actor_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", name="fk_finding_events_actor_id")
+    )
     at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )

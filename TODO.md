@@ -81,9 +81,9 @@ no-offset-on-email guard is enforced by a test.
 - [ ] `M2-10` Encrypted, super-admin-managed platform settings for LeakCheck, Google OIDC, Wazuh,
       DFIR-IRIS, SMTP, SOC mail, and user provisioning; operational configuration blank on shipment
 
-_Local status 2026-08-17:_ M2-01 through M2-05, M2-09, and M2-10 are implemented and covered by
-synthetic offline tests. M2-06 awaits the M3 scan table, and M2-07/M2-08 still require sanitized real
-fixtures captured after an API key is configured. Items remain unchecked pending commit and green CI.
+_Local status 2026-08-17:_ M2-01 through M2-06, M2-09, and M2-10 are implemented and covered by
+synthetic offline tests. M2-07/M2-08 still require sanitized real fixtures captured after an API key
+is configured. Items remain unchecked pending commit and green CI.
 
 ## M3 — Data model & ingest engine ← core
 
@@ -99,6 +99,10 @@ fixtures captured after an API key is configured. Items remain unchecked pending
 - [ ] `M3-08` Tests: repeat-ingest idempotency, passwordless records, crypto round-trip, AAD tamper
 
 **Done when:** the Bob scenario passes end to end and re-ingest produces zero spurious new findings.
+
+_Local status 2026-08-17:_ M3-01 through M3-08 are implemented on the feature branch, including the
+Bob/Canva scenario, remediation API, passwordless/idempotency cases, and AES-GCM AAD tamper tests.
+Items remain unchecked until the changes are committed and CI is green.
 
 ## M4 — Analyst UI
 
