@@ -143,16 +143,14 @@ _Completed 2026-08-17:_ M6-01 through M6-05 are committed and green on PR #4.
 
 ## M7 — Scheduling
 
-- [ ] `M7-01` `schedules` model + APScheduler on the Postgres job store
-- [ ] `M7-02` Postgres advisory-lock single-leader guarantee
-- [ ] `M7-03` Schedule CRUD UI with timezone + next-run preview
-- [ ] `M7-04` Tests: no double-execution with two workers running; misfire handling
+- [x] `M7-01` `schedules` model + APScheduler on the Postgres job store
+- [x] `M7-02` Postgres advisory-lock single-leader guarantee
+- [x] `M7-03` Schedule CRUD UI with timezone + next-run preview
+- [x] `M7-04` Tests: no double-execution with two workers running; misfire handling
 
 **Done when:** a nightly OU scan and a weekly domain scan run unattended.
 
-_Local status 2026-08-17:_ M7-01 through M7-04 are implemented with PostgreSQL as the canonical job
-store, APScheduler cron/timezone evaluation, transaction-scoped advisory leader election, audited CRUD,
-and deterministic leader/misfire tests. Items remain unchecked until committed and CI is green.
+_Completed 2026-08-17:_ M7-01 through M7-04 are committed and green on PR #5.
 
 ## M8 — Notifications
 
