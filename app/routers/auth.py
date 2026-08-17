@@ -14,6 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import undefer
 
+from app.analyst_ui import page
 from app.audit import audit_event
 from app.auth.authorization import get_session_manager_for_request, require_role
 from app.auth.csrf import CSRFProtector
@@ -32,6 +33,8 @@ from app.auth.local import (
     decrypt_totp_secret,
     encrypt_totp_secret,
     generate_totp_secret,
+    hash_password,
+    verify_password,
     verify_totp,
 )
 from app.auth.session import SESSION_COOKIE_NAME, SessionManager
@@ -335,10 +338,13 @@ async def mfa_setup_page(
         return HTMLResponse("MFA is managed by your sign-in provider.", status_code=400)
     if credential.totp_enabled_at is not None:
         return HTMLResponse(
-            '<!doctype html><html><head><link rel="stylesheet" href="/static/auth.css?v=2"></head>'
-            '<body class="auth-page"><main class="setup-card"><h1>Account security</h1>'
-            '<p>MFA is enabled for this account.</p><p><a href="/">Return to LeakCheck</a></p>'
-            "</main></body></html>",
+            page(
+                "Profile · MFA",
+                '<section class="hero compact"><p class="eyebrow">Account security</p>'
+                "<h1>MFA is enabled</h1><p>Your authenticator code is required at sign-in.</p>"
+                '<a class="button secondary" href="/account/profile">Back to Profile</a></section>',
+                user=current_user,
+            ),
             headers={"Cache-Control": "no-store"},
         )
     try:
@@ -357,21 +363,26 @@ async def mfa_setup_page(
     except LocalAuthenticationError:
         return HTMLResponse("MFA setup could not be initialized.", status_code=500)
     uri = build_totp_provisioning_uri(email=current_user.email, secret=secret)
+    content = "".join(
+        (
+            '<section class="hero compact"><p class="eyebrow">Account security</p>',
+            "<h1>Set up MFA</h1><p>Add this account to your authenticator, then enter a generated ",
+            'code to enable MFA.</p></section><section class="panel profile-panel">',
+            f'<p><a class="button secondary" href="{html.escape(uri, quote=True)}">',
+            "Open in authenticator</a></p>",
+            f"<p>Manual setup key: <code>{html.escape(secret)}</code></p>",
+            '<form id="mfa-form"><label>Authenticator code <input name="totp_code" ',
+            'inputmode="numeric" autocomplete="one-time-code" required></label>',
+            '<button type="submit">Enable MFA</button></form><output id="mfa-result"></output>',
+            "</section>",
+        )
+    )
     return HTMLResponse(
-        "".join(
-            (
-                '<!doctype html><html><head><link rel="stylesheet" '
-                'href="/static/auth.css?v=2"></head>'
-                '<body class="auth-page"><main class="setup-card"><h1>Set up MFA</h1>',
-                "<p>Add this account to your authenticator, then enter a generated code "
-                "to enable MFA.</p>",
-                f'<p><a href="{html.escape(uri, quote=True)}">Open in authenticator</a></p>',
-                f"<p>Manual setup key: <code>{html.escape(secret)}</code></p>",
-                '<form id="mfa-form"><label>Authenticator code <input name="totp_code" ',
-                'inputmode="numeric" autocomplete="one-time-code" required></label>',
-                '<button type="submit">Enable MFA</button></form><output id="mfa-result"></output>',
-                '<script src="/static/mfa-setup.js?v=2" defer></script></main></body></html>',
-            )
+        page(
+            "Profile · MFA",
+            content,
+            user=current_user,
+            extra_scripts=("/static/mfa-setup.js?v=3",),
         ),
         headers={"Cache-Control": "no-store"},
     )
@@ -417,6 +428,118 @@ async def enable_mfa(
     )
     await db.flush()
     return JSONResponse({"enabled": True})
+
+
+@router.get("/account/profile", response_model=None)
+async def profile_page(
+    current_user: User = Depends(_ALL_ROLES_GUARD),  # noqa: B008
+    db: AsyncSession = Depends(get_db_session),  # noqa: B008
+) -> HTMLResponse:
+    """Render local administrator password and MFA controls."""
+
+    credential = (
+        await db.execute(select(AdminCredential).where(AdminCredential.user_id == current_user.id))
+    ).scalar_one_or_none()
+    if credential is None or current_user.role is not UserRole.SUPER_ADMIN:
+        return HTMLResponse(
+            "Profile security is managed by your sign-in provider.", status_code=400
+        )
+    mfa_status = "Enabled" if credential.totp_enabled_at is not None else "Not enabled"
+    mfa_action = (
+        '<span class="badge success">Enabled</span>'
+        if credential.totp_enabled_at is not None
+        else '<a class="button" href="/account/mfa">Enable MFA</a>'
+    )
+    content = "".join(
+        (
+            '<section class="hero compact"><p class="eyebrow">Administrator account</p>',
+            f"<h1>{html.escape(current_user.email)}</h1>",
+            "<p>Manage the security controls for this local administrator.</p></section>",
+            '<section class="profile-grid"><article class="panel profile-panel"><h2>MFA</h2>',
+            f"<p>Status: {mfa_status}</p>{mfa_action}</article>",
+            '<article class="panel profile-panel"><h2>Change password</h2>',
+            '<form id="password-form"><label>Current password',
+            '<input type="password" name="current_password" autocomplete="current-password" ',
+            "required>",
+            '</label><label>New password<input type="password" name="new_password" ',
+            'autocomplete="new-password" minlength="15" required></label>',
+            '<label>Confirm new password<input type="password" name="confirmation" ',
+            'autocomplete="new-password" minlength="15" required></label>',
+            '<button type="submit">Change password</button></form>',
+            '<output id="profile-result" class="form-error"></output></article></section>',
+        )
+    )
+    return HTMLResponse(
+        page(
+            "Profile",
+            content,
+            user=current_user,
+            extra_scripts=("/static/profile.js?v=3",),
+        ),
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@router.post("/account/profile/password", response_model=None)
+async def change_password(
+    request: Request,
+    current_user: User = Depends(_ALL_ROLES_GUARD),  # noqa: B008
+    db: AsyncSession = Depends(get_db_session),  # noqa: B008
+) -> JSONResponse:
+    """Change a local administrator password after verifying the current password."""
+
+    body = await request.body()
+    if len(body) > _MAX_LOCAL_LOGIN_BODY_BYTES:
+        return JSONResponse({"detail": "Invalid password change request."}, status_code=400)
+    try:
+        payload = json.loads(body)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        payload = None
+    required = {"current_password", "new_password", "confirmation"}
+    if not isinstance(payload, dict) or set(payload) != required:
+        return JSONResponse({"detail": "Invalid password change request."}, status_code=400)
+    current_password = payload["current_password"]
+    new_password = payload["new_password"]
+    confirmation = payload["confirmation"]
+    if not all(isinstance(value, str) for value in (current_password, new_password, confirmation)):
+        return JSONResponse({"detail": "Invalid password change request."}, status_code=400)
+    try:
+        if any(
+            len(value.encode("utf-8")) > 1024
+            for value in (current_password, new_password, confirmation)
+        ):
+            raise ValueError
+    except (UnicodeEncodeError, ValueError):
+        return JSONResponse({"detail": "Invalid password change request."}, status_code=400)
+    result = await db.execute(
+        select(AdminCredential)
+        .options(undefer(AdminCredential.password_hash))
+        .where(AdminCredential.user_id == current_user.id)
+        .with_for_update()
+    )
+    credential = result.scalar_one_or_none()
+    if credential is None or not verify_password(credential.password_hash, current_password):
+        return JSONResponse({"detail": "Current password was not accepted."}, status_code=422)
+    if new_password != confirmation:
+        return JSONResponse({"detail": "New passwords do not match."}, status_code=422)
+    try:
+        credential.password_hash = hash_password(new_password)
+    except LocalAuthenticationError:
+        return JSONResponse(
+            {"detail": "New password must contain at least 15 valid characters."},
+            status_code=422,
+        )
+    await audit_event(
+        db,
+        request,
+        request.app.state.settings,
+        action="auth.password_changed",
+        actor_id=current_user.id,
+        target_type="user",
+        target_id=str(current_user.id),
+    )
+    await db.flush()
+    return JSONResponse({"changed": True})
 
 
 @router.post("/auth/logout", response_model=None)

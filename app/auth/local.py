@@ -277,7 +277,7 @@ class LocalAuthenticator:
             credential.failed_attempts = 0
             credential.locked_until = None
 
-        password_valid = _verify_password(credential.password_hash, password)
+        password_valid = verify_password(credential.password_hash, password)
         totp_valid = credential.totp_enabled_at is None
         if password_valid and credential.totp_enabled_at is not None:
             try:
@@ -383,7 +383,9 @@ def _validate_new_password(password: str) -> None:
         raise LocalAuthenticationError
 
 
-def _verify_password(password_hash: str, password: str) -> bool:
+def verify_password(password_hash: str, password: str) -> bool:
+    """Verify a supplied password without exposing Argon2 parsing failures."""
+
     try:
         return _ARGON2_HASHER.verify(password_hash, password)
     except (exceptions.InvalidHashError, exceptions.VerificationError):
@@ -393,7 +395,7 @@ def _verify_password(password_hash: str, password: str) -> bool:
 def _verify_dummy_password(password: str) -> None:
     """Spend a normal Argon2id verification for non-existent or ineligible accounts."""
 
-    _verify_password(_DUMMY_VERIFIER, password)
+    verify_password(_DUMMY_VERIFIER, password)
 
 
 def _password_needs_rehash(password_hash: str) -> bool:
