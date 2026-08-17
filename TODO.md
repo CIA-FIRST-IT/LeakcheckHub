@@ -129,19 +129,17 @@ _Completed 2026-08-17:_ M5-01 through M5-05 are committed and green on PR #3.
 
 ## M6 — Workspace sync & batch scans
 
-- [ ] `M6-01` Service-account client, domain-wide delegation, read-only Directory scopes
-- [ ] `M6-02` `list_org_units()` / `list_users()`; additive sync marking departed users inactive
-- [ ] `M6-03` `scan_queue` + worker drain via `SELECT ... FOR UPDATE SKIP LOCKED`
-- [ ] `M6-04` Batch builder: by OU / by domain / by selection; live HTMX progress view.
+- [x] `M6-01` Service-account client, domain-wide delegation, read-only Directory scopes
+- [x] `M6-02` `list_org_units()` / `list_users()`; additive sync marking departed users inactive
+- [x] `M6-03` `scan_queue` + worker drain via `SELECT ... FOR UPDATE SKIP LOCKED`
+- [x] `M6-04` Batch builder: by OU / by domain / by selection; live HTMX progress view.
       At 3 RPS a 5,000-user OU takes ~30–90 min, so batches are strictly background jobs with progress
       and resumability — never request-scoped
-- [ ] `M6-05` Tests: sync idempotency, queue concurrency, rate-limit adherence under batch load
+- [x] `M6-05` Tests: sync idempotency, queue concurrency, rate-limit adherence under batch load
 
 **Done when:** "scan every user in OU X" completes without exceeding the RPS budget.
 
-_Local status 2026-08-17:_ M6-01 through M6-05 are implemented with read-only delegated Directory
-REST access, additive/deactivation sync, durable resumable queue claims, batch UI/progress, and offline
-concurrency/rate-limit tests. Items remain unchecked until committed and CI is green.
+_Completed 2026-08-17:_ M6-01 through M6-05 are committed and green on PR #4.
 
 ## M7 — Scheduling
 
