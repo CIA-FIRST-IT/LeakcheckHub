@@ -38,4 +38,4 @@ jobs:
       - name: Dependency audit
         run: pip-audit -r requirements.txt
       - name: Tests
-        run: pytest
+        run: python -m pytest
