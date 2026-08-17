@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field, ValidationError, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.alerts import enqueue_test_alert
 from app.audit import audit_event
 from app.auth.authorization import require_role
 from app.auth.local import normalise_admin_email, normalise_display_name
@@ -25,7 +26,7 @@ from app.google_workspace import (
     configured_workspace_client,
     sync_workspace_users,
 )
-from app.models import User, UserRole, UserSource
+from app.models import AlertSinkName, User, UserRole, UserSource
 from app.platform_settings import (
     SECRET_KEYS,
     PlatformSettingError,
@@ -251,6 +252,12 @@ async def settings_page(
             "<h2>Other integrations</h2>",
             other_fields,
             '<button type="submit">Save settings</button></form>',
+            "<section><h2>SIEM test alerts</h2>",
+            "<p>These queue a contract-neutral test event. Delivery remains inactive until ",
+            "the corresponding live API contract has been verified.</p>",
+            '<button type="button" data-test-alert="wazuh">Queue Wazuh test</button>',
+            '<button type="button" data-test-alert="dfir_iris">Queue DFIR-IRIS test</button>',
+            "</section>",
             _workspace_help_dialog(),
             "<h2>Configuration status</h2><table><thead><tr>",
             f"<th>Setting</th><th>Status</th></tr></thead><tbody>{rows}</tbody></table>",
@@ -380,6 +387,28 @@ async def sync_workspace(
         meta={"seen": result.seen, "deactivated": result.deactivated},
     )
     return JSONResponse({"seen": result.seen, "deactivated": result.deactivated})
+
+
+@router.post("/alerts/test/{sink}", response_model=None)
+async def queue_test_alert(
+    sink: AlertSinkName,
+    request: Request,
+    current_user: User = Depends(_ADMIN_GUARD),  # noqa: B008
+    db: AsyncSession = Depends(get_db_session),  # noqa: B008
+) -> JSONResponse:
+    """Queue a safe internal test envelope without assuming a remote contract."""
+
+    await enqueue_test_alert(db, sink)
+    await audit_event(
+        db,
+        request,
+        request.app.state.settings,
+        action="admin.test_alert_queued",
+        actor_id=current_user.id,
+        target_type="alert_sink",
+        target_id=sink.value,
+    )
+    return JSONResponse({"queued": sink.value}, status_code=202)
 
 
 async def _json_body(request: Request) -> object:
