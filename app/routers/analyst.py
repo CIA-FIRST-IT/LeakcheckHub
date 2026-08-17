@@ -3,19 +3,17 @@
 from __future__ import annotations
 
 import csv
-import hashlib
 import io
 import uuid
 from dataclasses import asdict, dataclass
 from datetime import UTC, date, datetime
-from typing import Any, cast
+from typing import cast
 from urllib.parse import parse_qs
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, RedirectResponse, Response
 from sqlalchemy import Select, func, select
-from sqlalchemy.dialects.postgresql import insert as postgresql_insert
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
+from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import undefer
 
 from app.analyst_ui import (
@@ -29,12 +27,9 @@ from app.analyst_ui import (
 )
 from app.audit import audit_event
 from app.auth.authorization import require_role
-from app.config import Settings
 from app.db import get_async_session_factory, get_db_session
 from app.finding_crypto import FindingCryptoError, reveal_password
-from app.ingest import SQLAlchemyIngestRepository
 from app.leakcheck import (
-    LeakCheckClient,
     LeakCheckConfigurationError,
 )
 from app.models import (
@@ -51,23 +46,14 @@ from app.models import (
     User,
     UserRole,
 )
-from app.normalization import NormalizationError, NormalizedSubject, normalize_subject
-from app.platform_settings import PlatformSettingError, PlatformSettingsStore, SettingKey
+from app.normalization import NormalizationError, normalize_subject
+from app.platform_settings import PlatformSettingError
 from app.remediation import FindingNotFoundError, remediate_finding, unremediate_finding
-from app.scans import run_scan
+from app.scan_runtime import actor_scan_lock, configured_client, execute_scan, resolve_subject
 
 _ANALYST_GUARD = require_role(UserRole.ANALYST, UserRole.SUPER_ADMIN)
 _MAX_FORM_BYTES = 8 * 1024
 _MAX_RESULTS = 2_000
-_CLIENT_KEYS = frozenset(
-    {
-        SettingKey.LEAKCHECK_API_KEY,
-        SettingKey.LEAKCHECK_RPS,
-        SettingKey.LEAKCHECK_CONCURRENCY,
-        SettingKey.LEAKCHECK_MAX_RESPONSE_BYTES,
-    }
-)
-
 router = APIRouter(
     prefix="/analyst", dependencies=[Depends(_ANALYST_GUARD)], include_in_schema=False
 )
@@ -122,7 +108,7 @@ async def run_analyst_scan(
         normalized = normalize_subject(kind, query)
     except NormalizationError as exc:
         return _html(str(exc), status_code=422)
-    await db.execute(select(func.pg_advisory_xact_lock(_analyst_scan_lock(current_user.id))))
+    await db.execute(select(func.pg_advisory_xact_lock(actor_scan_lock(current_user.id))))
     active_result = await db.execute(
         select(Scan.id)
         .where(
@@ -133,9 +119,9 @@ async def run_analyst_scan(
     )
     if active_result.scalar_one_or_none() is not None:
         return _html("You already have a check in progress.", status_code=409)
-    subject = await _resolve_subject(db, normalized)
+    subject = await resolve_subject(db, normalized)
     try:
-        client = await _configured_client(request, db)
+        client = await configured_client(request, db)
     except (PlatformSettingError, LeakCheckConfigurationError, ValueError) as exc:
         await audit_event(
             db,
@@ -177,7 +163,7 @@ async def run_analyst_scan(
     # Background work uses another transaction, so make the pending row visible before responding.
     await db.commit()
     background_tasks.add_task(
-        _execute_scan,
+        execute_scan,
         get_async_session_factory(),
         client,
         request.app.state.settings,
@@ -417,106 +403,6 @@ async def export_subject_csv(
     )
 
 
-async def _configured_client(request: Request, db: AsyncSession) -> LeakCheckClient:
-    store = cast(PlatformSettingsStore, request.app.state.platform_settings)
-    values = await store.read_many(db, _CLIENT_KEYS)
-    digest = _client_config_digest(values)
-    async with request.app.state.leakcheck_client_lock:
-        cached = request.app.state.leakcheck_client
-        if (
-            isinstance(cached, LeakCheckClient)
-            and request.app.state.leakcheck_client_config_digest == digest
-        ):
-            return cached
-        client = LeakCheckClient(
-            values.get(SettingKey.LEAKCHECK_API_KEY, ""),
-            requests_per_second=_setting_int(
-                values, SettingKey.LEAKCHECK_RPS, 3, minimum=1, maximum=20
-            ),
-            concurrency=_setting_int(
-                values, SettingKey.LEAKCHECK_CONCURRENCY, 3, minimum=1, maximum=50
-            ),
-            max_response_bytes=_setting_int(
-                values,
-                SettingKey.LEAKCHECK_MAX_RESPONSE_BYTES,
-                32 * 1024 * 1024,
-                minimum=1024,
-                maximum=128 * 1024 * 1024,
-            ),
-        )
-        request.app.state.leakcheck_client = client
-        request.app.state.leakcheck_client_config_digest = digest
-        return client
-
-
-async def _execute_scan(
-    session_factory: async_sessionmaker[AsyncSession],
-    client: LeakCheckClient,
-    settings: Settings,
-    scan_id: uuid.UUID,
-    subject_id: uuid.UUID,
-    query: str,
-) -> None:
-    """Run a manual check after the response, without ever persisting its cleartext query."""
-
-    async with session_factory() as db:
-        scan_result = await db.execute(select(Scan).where(Scan.id == scan_id))
-        subject_result = await db.execute(select(Subject).where(Subject.id == subject_id))
-        scan = scan_result.scalar_one_or_none()
-        subject = subject_result.scalar_one_or_none()
-        if scan is None or subject is None:
-            return
-        started_at = datetime.now(UTC)
-        scan.status = ScanStatus.RUNNING
-        scan.started_at = started_at
-        if subject.first_scanned_at is None:
-            subject.first_scanned_at = started_at
-        await db.commit()
-        try:
-            await run_scan(
-                client,
-                SQLAlchemyIngestRepository(db),
-                settings,
-                scan=scan,
-                subject=subject,
-                query=query,
-            )
-        except Exception as exc:
-            # Roll back partial ingest, then persist only a safe error class for the poller.
-            await db.rollback()
-            failed_scan_result = await db.execute(select(Scan).where(Scan.id == scan_id))
-            failed_subject_result = await db.execute(
-                select(Subject).where(Subject.id == subject_id)
-            )
-            failed_scan = failed_scan_result.scalar_one_or_none()
-            failed_subject = failed_subject_result.scalar_one_or_none()
-            failed_at = datetime.now(UTC)
-            if failed_scan is not None:
-                failed_scan.status = ScanStatus.FAILED
-                failed_scan.finished_at = failed_at
-                failed_scan.error = type(exc).__name__
-            if failed_subject is not None:
-                failed_subject.last_scanned_at = failed_at
-            await db.commit()
-            return
-        await db.commit()
-
-
-async def _resolve_subject(db: AsyncSession, normalized: NormalizedSubject) -> Subject:
-    statement = postgresql_insert(Subject).values(
-        id=uuid.uuid4(),
-        kind=normalized.kind,
-        value_norm=normalized.value_norm,
-        value_display=normalized.value_display,
-    )
-    query: Any = statement.on_conflict_do_update(
-        constraint="uq_subjects_kind_value_norm",
-        set_={"value_display": statement.excluded.value_display},
-    ).returning(Subject)
-    result = await db.execute(query)
-    return cast(Subject, result.scalar_one())
-
-
 async def _subject_or_404(db: AsyncSession, subject_id: uuid.UUID) -> Subject:
     result = await db.execute(select(Subject).where(Subject.id == subject_id))
     subject = result.scalar_one_or_none()
@@ -630,39 +516,6 @@ async def _query_from_form(request: Request) -> str:
     if len(queries) != 1:
         raise HTTPException(status_code=422, detail="Exactly one query value is required.")
     return queries[0]
-
-
-def _setting_int(
-    values: dict[SettingKey, str],
-    key: SettingKey,
-    default: int,
-    *,
-    minimum: int,
-    maximum: int,
-) -> int:
-    raw = values.get(key)
-    value = default if raw is None else int(raw)
-    if not minimum <= value <= maximum:
-        raise PlatformSettingError(f"invalid stored setting {key.value}")
-    return value
-
-
-def _client_config_digest(values: dict[SettingKey, str]) -> bytes:
-    digest = hashlib.sha256()
-    for key in sorted(_CLIENT_KEYS, key=lambda item: item.value):
-        encoded = values.get(key, "").encode("utf-8")
-        digest.update(key.value.encode("ascii"))
-        digest.update(len(encoded).to_bytes(4, "big"))
-        digest.update(encoded)
-    return digest.digest()
-
-
-def _analyst_scan_lock(user_id: uuid.UUID) -> int:
-    return int.from_bytes(
-        hashlib.sha256(b"leakcheck/analyst-scan/v1\x00" + user_id.bytes).digest()[:8],
-        "big",
-        signed=True,
-    )
 
 
 def _parse_filter_date(value: str) -> date | None:

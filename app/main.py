@@ -21,6 +21,7 @@ from app.routers.analyst import router as analyst_router
 from app.routers.auth import router as auth_router
 from app.routers.findings import router as findings_router
 from app.routers.health import router as health_router
+from app.routers.user import router as user_router
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -56,6 +57,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(admin_router)
     app.include_router(analyst_router)
     app.include_router(findings_router)
+    app.include_router(user_router)
     app.include_router(health_router)
     app.mount("/static", StaticFiles(directory="app/static"), name="static")
     return app
