@@ -200,11 +200,12 @@ class AdminCredential(Base):
         deferred=True,
         deferred_raiseload=True,
     )
-    totp_secret_enc: Mapped[bytes] = mapped_column(
-        nullable=False,
+    totp_secret_enc: Mapped[bytes | None] = mapped_column(
+        nullable=True,
         deferred=True,
         deferred_raiseload=True,
     )
+    totp_enabled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     failed_attempts: Mapped[int] = mapped_column(
         Integer,
         nullable=False,

@@ -1,8 +1,7 @@
 """Local super-admin credentials with Argon2id, encrypted TOTP, and durable throttling.
 
-This module intentionally owns the only path that loads ``AdminCredential``'s deferred secret
-columns.  It neither logs nor returns a submitted password.  The CLI in
-``app.create_superadmin`` is the sole provisioning path.
+This module owns local password and TOTP primitives. It neither logs nor returns submitted
+credential material. The CLI in ``app.create_superadmin`` is the sole account provisioning path.
 """
 
 from __future__ import annotations
@@ -15,7 +14,7 @@ import ipaddress
 import re
 import secrets
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Final
 from urllib.parse import quote, urlencode
@@ -76,10 +75,9 @@ class LocalAuthenticationResult:
 
 @dataclass(frozen=True, slots=True)
 class CreatedSuperAdmin:
-    """A one-time TOTP seed result.  Its representation omits the seed."""
+    """A newly-created password-only local administrator."""
 
     user: User
-    totp_secret: str = field(repr=False)
 
 
 def hash_password(password: str) -> str:
@@ -172,7 +170,7 @@ async def create_superadmin(
     display_name: str,
     password: str,
 ) -> CreatedSuperAdmin:
-    """Create an active manual super-admin and return its one-time TOTP provisioning seed."""
+    """Create an active password-only manual super-admin."""
 
     normalised_email = normalise_admin_email(email)
     normalised_name = normalise_display_name(display_name)
@@ -190,16 +188,16 @@ async def create_superadmin(
         is_active=True,
         source=UserSource.MANUAL,
     )
-    secret = generate_totp_secret()
     credential = AdminCredential(
         user_id=user.id,
         password_hash=hash_password(password),
-        totp_secret_enc=encrypt_totp_secret(settings, user_id=user.id, secret=secret),
+        totp_secret_enc=None,
+        totp_enabled_at=None,
     )
     db.add(user)
     db.add(credential)
     await db.flush()
-    return CreatedSuperAdmin(user=user, totp_secret=secret)
+    return CreatedSuperAdmin(user=user)
 
 
 class LocalAuthenticator:
@@ -224,11 +222,11 @@ class LocalAuthenticator:
         *,
         username: str,
         password: str,
-        totp_code: str,
+        totp_code: str | None,
         client_ip: str,
         now: datetime | None = None,
     ) -> LocalAuthenticationResult:
-        """Return a user only after password, TOTP, account lockout, and IP throttle all pass."""
+        """Require TOTP only after the account has completed MFA enrollment."""
 
         current = _utc_now(now)
         try:
@@ -280,9 +278,11 @@ class LocalAuthenticator:
             credential.locked_until = None
 
         password_valid = _verify_password(credential.password_hash, password)
-        totp_valid = False
-        if password_valid:
+        totp_valid = credential.totp_enabled_at is None
+        if password_valid and credential.totp_enabled_at is not None:
             try:
+                if credential.totp_secret_enc is None or totp_code is None:
+                    raise LocalAuthenticationError
                 secret = decrypt_totp_secret(
                     self._settings,
                     user_id=user.id,
