@@ -27,6 +27,25 @@ async function submitJson(form, url) {
   if (response.ok) form.reset();
 }
 
+const result = document.querySelector("#result");
+const workspaceSync = document.querySelector("#workspace-sync");
+if (workspaceSync) {
+  workspaceSync.addEventListener("click", async () => {
+    await fetch("/auth/csrf", { credentials: "same-origin" });
+    workspaceSync.disabled = true;
+    try {
+      const response = await fetch("/admin/workspace/sync", {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "X-CSRF-Token": cookieValue("__Host-leakcheck-csrf") },
+      });
+      result.textContent = response.ok ? "Workspace users synchronized." : "Workspace sync failed.";
+    } finally {
+      workspaceSync.disabled = false;
+    }
+  });
+}
+
 document.querySelector("#settings-form")?.addEventListener("submit", (event) => {
   event.preventDefault();
   void submitJson(event.currentTarget, "/admin/settings");

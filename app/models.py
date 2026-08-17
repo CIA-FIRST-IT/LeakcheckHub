@@ -67,6 +67,27 @@ class ScanStatus(StrEnum):
     FAILED = "failed"
 
 
+class BatchTarget(StrEnum):
+    OU = "ou"
+    DOMAIN = "domain"
+    SELECTION = "selection"
+
+
+class BatchStatus(StrEnum):
+    PENDING = "pending"
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    PARTIAL = "partial"
+    FAILED = "failed"
+
+
+class QueueStatus(StrEnum):
+    QUEUED = "queued"
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
+
+
 class FindingSeverity(StrEnum):
     LOW = "low"
     MEDIUM = "medium"
@@ -465,3 +486,74 @@ class FindingEvent(Base):
     meta: Mapped[dict[str, object]] = mapped_column(
         JSONB, nullable=False, default=dict, server_default="{}"
     )
+
+
+class ScanBatch(Base):
+    """Durable background batch with an immutable target description."""
+
+    __tablename__ = "scan_batches"
+    __table_args__ = (
+        CheckConstraint("total_count >= 0", name="ck_scan_batches_total_count"),
+        CheckConstraint("completed_count >= 0", name="ck_scan_batches_completed_count"),
+        CheckConstraint("failed_count >= 0", name="ck_scan_batches_failed_count"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    target_type: Mapped[BatchTarget] = mapped_column(
+        Enum(BatchTarget, name="batch_target", values_callable=_enum_values), nullable=False
+    )
+    target: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)
+    status: Mapped[BatchStatus] = mapped_column(
+        Enum(BatchStatus, name="batch_status", values_callable=_enum_values),
+        nullable=False,
+        default=BatchStatus.PENDING,
+        server_default=BatchStatus.PENDING.value,
+    )
+    created_by: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", name="fk_scan_batches_created_by"), index=True
+    )
+    total_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    completed_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    failed_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class ScanQueue(Base):
+    """A resumable unit of batch work claimed with row-level locking."""
+
+    __tablename__ = "scan_queue"
+    __table_args__ = (
+        UniqueConstraint("batch_id", "subject_id", name="uq_scan_queue_batch_subject"),
+        CheckConstraint("attempts >= 0", name="ck_scan_queue_attempts"),
+        Index("ix_scan_queue_claim", "status", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    batch_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("scan_batches.id", name="fk_scan_queue_batch_id"), index=True
+    )
+    subject_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("subjects.id", name="fk_scan_queue_subject_id"), index=True
+    )
+    status: Mapped[QueueStatus] = mapped_column(
+        Enum(QueueStatus, name="queue_status", values_callable=_enum_values),
+        nullable=False,
+        default=QueueStatus.QUEUED,
+        server_default=QueueStatus.QUEUED.value,
+    )
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    locked_by: Mapped[str | None] = mapped_column(String(255))
+    locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_error: Mapped[str | None] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
