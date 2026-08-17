@@ -240,6 +240,7 @@ async def settings_page(
             '<link rel="stylesheet" href="/static/admin-settings.css">',
             "</head><body><main>",
             "<h1>Platform settings</h1>",
+            '<p><a href="/account/mfa">Account security and MFA</a></p>',
             "<p>Secrets are encrypted at rest and are never displayed.</p>",
             '<form id="settings-form"><h2>Google sign-in</h2>',
             oidc_fields,

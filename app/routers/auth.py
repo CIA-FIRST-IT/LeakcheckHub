@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 import hmac
+import html
 import json
 from datetime import UTC, datetime
 from typing import cast
 
 from fastapi import APIRouter, Depends, Request, Response
-from fastapi.responses import PlainTextResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import undefer
 
 from app.audit import audit_event
 from app.auth.authorization import get_session_manager_for_request, require_role
@@ -21,10 +24,19 @@ from app.auth.google import (
     GoogleOIDCError,
     provision_google_user,
 )
-from app.auth.local import LocalAuthenticationResult, LocalAuthenticator
+from app.auth.local import (
+    LocalAuthenticationError,
+    LocalAuthenticationResult,
+    LocalAuthenticator,
+    build_totp_provisioning_uri,
+    decrypt_totp_secret,
+    encrypt_totp_secret,
+    generate_totp_secret,
+    verify_totp,
+)
 from app.auth.session import SESSION_COOKIE_NAME, SessionManager
 from app.db import get_db_session
-from app.models import User, UserRole
+from app.models import AdminCredential, User, UserRole
 from app.platform_settings import PlatformSettingsStore, SettingKey
 
 router = APIRouter(include_in_schema=False)
@@ -83,6 +95,41 @@ async def get_csrf_protector(request: Request) -> CSRFProtector:
     """Read the CSRF issuer configured with the matching session-secret-derived key."""
 
     return cast(CSRFProtector, request.app.state.csrf_protector)
+
+
+@router.get("/", response_model=None)
+async def landing_page(
+    request: Request,
+    db: AsyncSession = Depends(get_db_session),  # noqa: B008
+    session_manager: SessionManager = Depends(get_session_manager_for_request),  # noqa: B008
+) -> HTMLResponse | RedirectResponse:
+    """Show the login page or send an existing session to its role-specific home."""
+
+    verified = await session_manager.verify(db, token=request.cookies.get(SESSION_COOKIE_NAME))
+    if verified is not None:
+        destinations = {
+            UserRole.SUPER_ADMIN: "/admin/settings",
+            UserRole.ANALYST: "/analyst",
+            UserRole.USER: "/portal",
+        }
+        return RedirectResponse(destinations[verified.user.role], status_code=303)
+    return HTMLResponse(
+        """<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width"><title>LeakCheck sign in</title></head>
+<body><main><h1>LeakCheck sign in</h1>
+<form id="local-login"><label>Email
+<input name="username" type="email" autocomplete="username" required></label>
+<label>Password
+<input name="password" type="password" autocomplete="current-password" required></label>
+<label>Authenticator code
+<input name="totp_code" inputmode="numeric" autocomplete="one-time-code"></label>
+<p>Leave the authenticator code blank until MFA has been enabled for this account.</p>
+<button type="submit">Sign in</button></form>
+<p><a href="/auth/google/login">Sign in with Google</a></p>
+<output id="login-result"></output><script src="/static/login.js" defer></script>
+</main></body></html>""",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @router.get("/auth/csrf", response_model=None)
@@ -260,6 +307,106 @@ async def finish_local_login(
     return response
 
 
+@router.get("/account/mfa", response_model=None)
+async def mfa_setup_page(
+    request: Request,
+    current_user: User = Depends(_ALL_ROLES_GUARD),  # noqa: B008
+    db: AsyncSession = Depends(get_db_session),  # noqa: B008
+) -> HTMLResponse:
+    """Create or resume a pending TOTP enrollment for a local administrator."""
+
+    result = await db.execute(
+        select(AdminCredential)
+        .options(undefer(AdminCredential.totp_secret_enc))
+        .where(AdminCredential.user_id == current_user.id)
+        .with_for_update()
+    )
+    credential = result.scalar_one_or_none()
+    if credential is None:
+        return HTMLResponse("MFA is managed by your sign-in provider.", status_code=400)
+    if credential.totp_enabled_at is not None:
+        return HTMLResponse(
+            "<!doctype html><html><body><main><h1>Account security</h1>"
+            '<p>MFA is enabled for this account.</p><p><a href="/">Return to LeakCheck</a></p>'
+            "</main></body></html>",
+            headers={"Cache-Control": "no-store"},
+        )
+    try:
+        if credential.totp_secret_enc is None:
+            secret = generate_totp_secret()
+            credential.totp_secret_enc = encrypt_totp_secret(
+                request.app.state.settings, user_id=current_user.id, secret=secret
+            )
+            await db.flush()
+        else:
+            secret = decrypt_totp_secret(
+                request.app.state.settings,
+                user_id=current_user.id,
+                encrypted=credential.totp_secret_enc,
+            )
+    except LocalAuthenticationError:
+        return HTMLResponse("MFA setup could not be initialized.", status_code=500)
+    uri = build_totp_provisioning_uri(email=current_user.email, secret=secret)
+    return HTMLResponse(
+        "".join(
+            (
+                "<!doctype html><html><body><main><h1>Set up MFA</h1>",
+                "<p>Add this account to your authenticator, then enter a generated code "
+                "to enable MFA.</p>",
+                f'<p><a href="{html.escape(uri, quote=True)}">Open in authenticator</a></p>',
+                f"<p>Manual setup key: <code>{html.escape(secret)}</code></p>",
+                '<form id="mfa-form"><label>Authenticator code <input name="totp_code" ',
+                'inputmode="numeric" autocomplete="one-time-code" required></label>',
+                '<button type="submit">Enable MFA</button></form><output id="mfa-result"></output>',
+                '<script src="/static/mfa-setup.js" defer></script></main></body></html>',
+            )
+        ),
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@router.post("/account/mfa/enable", response_model=None)
+async def enable_mfa(
+    request: Request,
+    current_user: User = Depends(_ALL_ROLES_GUARD),  # noqa: B008
+    db: AsyncSession = Depends(get_db_session),  # noqa: B008
+) -> JSONResponse:
+    """Enable a pending seed only after the signed-in user proves possession."""
+
+    code = await _read_mfa_code(request)
+    result = await db.execute(
+        select(AdminCredential)
+        .options(undefer(AdminCredential.totp_secret_enc))
+        .where(AdminCredential.user_id == current_user.id)
+        .with_for_update()
+    )
+    credential = result.scalar_one_or_none()
+    if credential is None or credential.totp_secret_enc is None or code is None:
+        return JSONResponse({"detail": "MFA setup is not ready."}, status_code=400)
+    try:
+        secret = decrypt_totp_secret(
+            request.app.state.settings,
+            user_id=current_user.id,
+            encrypted=credential.totp_secret_enc,
+        )
+    except LocalAuthenticationError:
+        return JSONResponse({"detail": "MFA setup is not ready."}, status_code=400)
+    if not verify_totp(secret, code):
+        return JSONResponse({"detail": "The authenticator code was not accepted."}, status_code=422)
+    credential.totp_enabled_at = datetime.now(UTC)
+    await audit_event(
+        db,
+        request,
+        request.app.state.settings,
+        action="auth.mfa_enabled",
+        actor_id=current_user.id,
+        target_type="user",
+        target_id=str(current_user.id),
+    )
+    await db.flush()
+    return JSONResponse({"enabled": True})
+
+
 @router.post("/auth/logout", response_model=None)
 async def logout(
     request: Request,
@@ -294,7 +441,7 @@ def _authentication_failed(*, status_code: int = 400) -> PlainTextResponse:
     return response
 
 
-async def _read_local_login_credentials(request: Request) -> tuple[str, str, str] | None:
+async def _read_local_login_credentials(request: Request) -> tuple[str, str, str | None] | None:
     """Read a tiny JSON credential body without exposing Pydantic validation echoes to a caller."""
 
     content_length = request.headers.get("content-length")
@@ -311,11 +458,20 @@ async def _read_local_login_credentials(request: Request) -> tuple[str, str, str
         payload = json.loads(body)
     except (UnicodeDecodeError, json.JSONDecodeError):
         return None
-    if not isinstance(payload, dict) or set(payload) != {"username", "password", "totp_code"}:
+    if (
+        not isinstance(payload, dict)
+        or not {"username", "password"} <= set(payload)
+        or set(payload)
+        - {
+            "username",
+            "password",
+            "totp_code",
+        }
+    ):
         return None
     username = payload["username"]
     password = payload["password"]
-    totp_code = payload["totp_code"]
+    totp_code = payload.get("totp_code") or None
     try:
         password_length = len(password.encode("utf-8")) if isinstance(password, str) else 0
     except UnicodeEncodeError:
@@ -323,13 +479,24 @@ async def _read_local_login_credentials(request: Request) -> tuple[str, str, str
     if (
         not isinstance(username, str)
         or not isinstance(password, str)
-        or not isinstance(totp_code, str)
+        or (totp_code is not None and not isinstance(totp_code, str))
         or len(username) > 255
         or password_length > 1024
-        or len(totp_code) > 16
+        or (totp_code is not None and len(totp_code) > 16)
     ):
         return None
     return username, password, totp_code
+
+
+async def _read_mfa_code(request: Request) -> str | None:
+    try:
+        payload = json.loads(await request.body())
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict) or set(payload) != {"totp_code"}:
+        return None
+    code = payload["totp_code"]
+    return code if isinstance(code, str) and len(code) <= 16 else None
 
 
 def _local_authentication_failed() -> PlainTextResponse:
