@@ -179,6 +179,12 @@ _Completed 2026-08-17:_ M8-01 through M8-06 are committed and green on PR #6.
 
 **Done when:** a new leak on a watchlisted VIP mails SOC + user and lands in both SIEMs.
 
+_Foundation status 2026-08-17:_ contract-neutral portions of M9-02, M9-05, M9-06, and M9-07 are
+implemented on a feature branch: durable deduplicated outbox records, bounded retry/dead-letter logic,
+audited watchlist/channel UI, safe new/re-leak envelopes, and queued test alerts with total-outage
+tests. No sink adapter is registered and no remote payload mapping is written until M9-01 is completed
+against the real Wazuh and DFIR-IRIS instances.
+
 ## M10 — Hardening & operations
 
 - [ ] `M10-01` Admin UI: role assignment, integration config, quota display, session revocation

@@ -271,6 +271,7 @@ def page(title: str, content: str, *, user: User) -> str:
             '<a href="/analyst/batches">Batches</a>',
             '<a href="/analyst/schedules">Schedules</a>',
             '<a href="/analyst/notifications">Notifications</a>',
+            '<a href="/analyst/watchlist">Watchlist</a>',
             admin_link,
             '</nav><div class="user-chip"><span>',
             _h(user.display_name),
