@@ -347,7 +347,7 @@ async def test_local_login_route_rotates_session_without_reflecting_credentials(
     app.state.session_manager = session_manager
 
     async def fake_db_dependency() -> object:
-        yield object()
+        yield FakeAsyncSession(rate_limit=make_rate_limit())
 
     app.dependency_overrides[get_db_session] = fake_db_dependency
     transport = httpx.ASGITransport(app=app)
@@ -387,7 +387,7 @@ async def test_local_login_route_returns_one_non_reflecting_failure_for_bad_payl
     app.state.local_authenticator = authenticator
 
     async def fake_db_dependency() -> object:
-        yield object()
+        yield FakeAsyncSession(rate_limit=make_rate_limit())
 
     app.dependency_overrides[get_db_session] = fake_db_dependency
 

@@ -20,6 +20,7 @@ from app.auth.google import (
     OAUTH_TRANSACTION_COOKIE_NAME,
     GoogleIdentity,
     GoogleOIDC,
+    GoogleOIDCConfiguration,
     GoogleOIDCError,
     ProviderMetadata,
     provision_google_user,
@@ -43,6 +44,15 @@ def make_settings() -> Settings:
         google_workspace_domains=("example.test",),
         data_key=base64.urlsafe_b64encode(b"k" * 32).decode("ascii"),
         trusted_hosts=("portal.example.test",),
+    )
+
+
+def oidc_configuration() -> GoogleOIDCConfiguration:
+    return GoogleOIDCConfiguration(
+        client_id=CLIENT_ID,
+        client_secret="c" * 32,
+        redirect_uri="https://portal.example.test/auth/google/callback",
+        allowed_domains=("example.test",),
     )
 
 
@@ -147,7 +157,7 @@ def oidc_transport(
 
 
 def test_transaction_cookie_is_signed_expiring_and_not_repr_safe() -> None:
-    oidc = GoogleOIDC(make_settings())
+    oidc = GoogleOIDC(make_settings(), configuration=oidc_configuration())
     transaction = oidc.begin_transaction(now=NOW)
     cookie = oidc.transaction_cookie(transaction)
 
@@ -182,7 +192,7 @@ async def test_authorization_url_uses_only_code_flow_s256_pkce_and_a_domain_hint
             jwk={"alg": "RS256", "kid": "unused", "kty": "RSA", "use": "sig"},
         )
     ) as client:
-        oidc = GoogleOIDC(make_settings(), http_client=client)
+        oidc = GoogleOIDC(make_settings(), configuration=oidc_configuration(), http_client=client)
         transaction = oidc.begin_transaction(now=NOW)
         url = await oidc.authorization_url(transaction)
 
@@ -202,7 +212,9 @@ async def test_authorization_url_uses_only_code_flow_s256_pkce_and_a_domain_hint
 @pytest.mark.anyio
 async def test_exchange_verifies_the_jwks_signature_and_required_claims_locally() -> None:
     private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    transaction = GoogleOIDC(make_settings()).begin_transaction(now=NOW)
+    transaction = GoogleOIDC(make_settings(), configuration=oidc_configuration()).begin_transaction(
+        now=NOW
+    )
     id_token = make_id_token(private_key, nonce=transaction.nonce)
     async with httpx.AsyncClient(
         transport=oidc_transport(
@@ -211,7 +223,7 @@ async def test_exchange_verifies_the_jwks_signature_and_required_claims_locally(
             jwk=make_jwk(private_key),
         )
     ) as client:
-        oidc = GoogleOIDC(make_settings(), http_client=client)
+        oidc = GoogleOIDC(make_settings(), configuration=oidc_configuration(), http_client=client)
         identity = await oidc.exchange_and_verify("one-time-code", transaction)
 
     assert identity == GoogleIdentity(
@@ -225,7 +237,9 @@ async def test_exchange_verifies_the_jwks_signature_and_required_claims_locally(
 @pytest.mark.anyio
 async def test_exchange_rejects_a_verified_token_from_an_unapproved_hosted_domain() -> None:
     private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
-    transaction = GoogleOIDC(make_settings()).begin_transaction(now=NOW)
+    transaction = GoogleOIDC(make_settings(), configuration=oidc_configuration()).begin_transaction(
+        now=NOW
+    )
     id_token = make_id_token(private_key, nonce=transaction.nonce, hosted_domain="attacker.example")
     async with httpx.AsyncClient(
         transport=oidc_transport(
@@ -234,7 +248,7 @@ async def test_exchange_rejects_a_verified_token_from_an_unapproved_hosted_domai
             jwk=make_jwk(private_key),
         )
     ) as client:
-        oidc = GoogleOIDC(make_settings(), http_client=client)
+        oidc = GoogleOIDC(make_settings(), configuration=oidc_configuration(), http_client=client)
         with pytest.raises(GoogleOIDCError):
             await oidc.exchange_and_verify("one-time-code", transaction)
 
@@ -311,7 +325,9 @@ async def test_auto_provision_rejects_an_email_already_bound_to_another_google_s
 async def test_login_route_sets_a_secure_signed_transaction_cookie() -> None:
     class FakeLoginOIDC:
         def __init__(self) -> None:
-            self.transaction = GoogleOIDC(make_settings()).begin_transaction(now=NOW)
+            self.transaction = GoogleOIDC(
+                make_settings(), configuration=oidc_configuration()
+            ).begin_transaction(now=NOW)
 
         def begin_transaction(self) -> object:
             return self.transaction
@@ -326,7 +342,13 @@ async def test_login_route_sets_a_secure_signed_transaction_cookie() -> None:
 
     app = create_app(make_settings())
     app.state.google_oidc = FakeLoginOIDC()
+
+    async def fake_db_dependency() -> object:
+        yield FakeAsyncSession(results=[])
+
+    app.dependency_overrides[get_db_session] = fake_db_dependency
     transport_to_app = httpx.ASGITransport(app=app)
+
     async with httpx.AsyncClient(
         transport=transport_to_app,
         base_url="https://portal.example.test",
@@ -349,10 +371,11 @@ async def test_login_route_sets_a_secure_signed_transaction_cookie() -> None:
 @pytest.mark.anyio
 async def test_callback_rejects_non_ascii_state_without_calling_google() -> None:
     app = create_app(make_settings())
+    app.state.google_oidc = GoogleOIDC(make_settings(), configuration=oidc_configuration())
     transaction = app.state.google_oidc.begin_transaction()
 
     async def fake_db_dependency() -> object:
-        yield object()
+        yield FakeAsyncSession(results=[])
 
     app.dependency_overrides[get_db_session] = fake_db_dependency
     transport = httpx.ASGITransport(app=app)

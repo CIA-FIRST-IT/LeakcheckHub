@@ -81,6 +81,16 @@ class GoogleIdentity:
 
 
 @dataclass(frozen=True, slots=True)
+class GoogleOIDCConfiguration:
+    """Operational OIDC values loaded from the encrypted platform settings table."""
+
+    client_id: str
+    client_secret: str = field(repr=False)
+    redirect_uri: str
+    allowed_domains: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class OAuthTransaction:
     """Short-lived, signed browser state for one authorization-code exchange."""
 
@@ -165,11 +175,17 @@ class OAuthTransaction:
 class GoogleOIDC:
     """Perform OIDC exchanges and verify claims locally against Google JWKS keys."""
 
-    def __init__(self, settings: Settings, *, http_client: httpx.AsyncClient | None = None) -> None:
-        self._client_id = settings.google_client_id
-        self._client_secret = settings.google_client_secret.get_secret_value()
-        self._redirect_uri = settings.google_redirect_uri
-        self._allowed_domains = frozenset(settings.google_workspace_domains)
+    def __init__(
+        self,
+        settings: Settings,
+        *,
+        configuration: GoogleOIDCConfiguration,
+        http_client: httpx.AsyncClient | None = None,
+    ) -> None:
+        self._client_id = configuration.client_id
+        self._client_secret = configuration.client_secret
+        self._redirect_uri = configuration.redirect_uri
+        self._allowed_domains = frozenset(configuration.allowed_domains)
         self._transaction_key = hmac.new(
             settings.session_secret.get_secret_value().encode("utf-8"),
             b"leakcheck/google-oidc-transaction/v1",

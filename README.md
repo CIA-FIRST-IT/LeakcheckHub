@@ -5,7 +5,8 @@ deliberately small: FastAPI, PostgreSQL, server-rendered UI, and no JavaScript b
 
 ## Local start
 
-1. Copy `.env.example` to `.env`, then generate unique values for every `replace-with-…` setting.
+1. Copy `.env.example` to `.env`, then generate unique values for the database, session, and root
+   encryption bootstrap secrets. In production, inject these from the deployment secret manager.
 2. Start the hardened development stack:
 
    ```sh
@@ -19,13 +20,22 @@ The `migrate` service is the only development service that connects as the Postg
 superuser. Its initial Alembic migration creates the separate, non-superuser migration and runtime
 roles. Web and worker processes use the runtime role only.
 
-## Google sign-in
+## Platform configuration
 
-Create a confidential Web OAuth client in Google Cloud and register the exact
-`LC_GOOGLE_REDIRECT_URI` value (normally `https://<portal-host>/auth/google/callback`). Set the client
-ID, client secret, redirect URI, and one or more Workspace domains in `.env`; startup rejects missing,
-placeholder, wildcard, or unsafe values. The web deployment needs outbound HTTPS only to Google's OIDC
-hosts: `accounts.google.com`, `oauth2.googleapis.com`, and `www.googleapis.com`.
+Fresh installations intentionally contain no operational integration configuration. After creating
+the first super-admin, sign in and open `/admin/settings` to add users and configure LeakCheck, Google
+OIDC/Workspace, Wazuh, DFIR-IRIS, SMTP, and the SOC address. The Workspace help popup walks through
+read-only domain-wide delegation and service-account JSON setup. Secret fields are encrypted in PostgreSQL,
+are never displayed again, and can be left blank when updating unrelated settings.
+
+The database URL, database passwords, session signing secret, trusted-host boundary, and root data key
+remain deployment bootstrap configuration. They cannot safely be stored in the database they are
+needed to connect to or decrypt. They are the only values that belong in `.env` for development and
+should come from a secret manager in production.
+
+For Google sign-in, create a confidential Web OAuth client and register the configured redirect URI
+(normally `https://<portal-host>/auth/google/callback`). Until the complete Google configuration is
+saved, the app boots normally and Google sign-in returns HTTP 503.
 
 ## Super-admin bootstrap
 
@@ -44,6 +54,12 @@ requires the account email, password, and a current six-digit TOTP code over HTT
 Before any state-changing browser request, retrieve `GET /auth/csrf`, read the host-only
 `__Host-leakcheck-csrf` cookie from same-origin code, and return its value in the `X-CSRF-Token`
 header. The token is signed and bound to the active session, then rotated after sign-in.
+
+For local tests, the repository uses an isolated Python 3.12 environment:
+
+```sh
+.venv/bin/python -m pytest
+```
 
 ## Quality checks
 

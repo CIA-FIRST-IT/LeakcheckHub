@@ -1,0 +1,80 @@
+body {
+  color: #172033;
+  background: #f5f7fa;
+  font-family: system-ui, sans-serif;
+  line-height: 1.5;
+}
+
+main {
+  max-width: 64rem;
+  margin: 2rem auto;
+  padding: 2rem;
+  background: white;
+  border-radius: 0.75rem;
+  box-shadow: 0 0.25rem 1.5rem rgb(20 32 55 / 10%);
+}
+
+label {
+  display: block;
+  margin-block: 0.65rem;
+}
+
+input,
+select,
+textarea,
+button {
+  font: inherit;
+}
+
+input,
+select,
+textarea {
+  max-width: 100%;
+  padding: 0.4rem;
+}
+
+.help-button {
+  width: 1.55rem;
+  height: 1.55rem;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  color: white;
+  background: #3156a3;
+  font-weight: 700;
+  cursor: help;
+}
+
+.help-button:focus-visible {
+  outline: 0.2rem solid #ffbf47;
+  outline-offset: 0.15rem;
+}
+
+dialog {
+  width: min(46rem, calc(100% - 2rem));
+  max-height: calc(100% - 3rem);
+  padding: 1.5rem 2rem;
+  border: 0;
+  border-radius: 0.75rem;
+  box-shadow: 0 1rem 4rem rgb(0 0 0 / 30%);
+}
+
+dialog::backdrop {
+  background: rgb(9 19 37 / 58%);
+}
+
+dialog code {
+  overflow-wrap: anywhere;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+th,
+td {
+  padding: 0.4rem;
+  border-bottom: 1px solid #d8deea;
+  text-align: left;
+}

@@ -51,4 +51,5 @@ def require_role(*allowed_roles: UserRole) -> Callable[..., Awaitable[User]]:
             )
         return current_user
 
+    dependency.__dict__["__leakcheck_role_guard__"] = True
     return dependency
