@@ -116,18 +116,16 @@ _Completed 2026-08-17:_ M4-01 through M4-07 are committed and green on PR #2.
 
 ## M5 — Self-service user portal
 
-- [ ] `M5-01` User dashboard — **no identifier parameter**; subject derived from the session
-- [ ] `M5-02` Masked-only serializer in its own module, with no code path to `password_ciphertext`
-- [ ] `M5-03` Self-remediation with event trail; per-finding guidance text
-- [ ] `M5-04` Rate limit + cooldown on self-check
-- [ ] `M5-05` Tests: user cannot reach analyst routes, cannot query another email by any parameter
+- [x] `M5-01` User dashboard — **no identifier parameter**; subject derived from the session
+- [x] `M5-02` Masked-only serializer in its own module, with no code path to `password_ciphertext`
+- [x] `M5-03` Self-remediation with event trail; per-finding guidance text
+- [x] `M5-04` Rate limit + cooldown on self-check
+- [x] `M5-05` Tests: user cannot reach analyst routes, cannot query another email by any parameter
       manipulation, and **no response to a User ever contains cleartext**
 
 **Done when:** a `User` sees only their own findings, masked, and can close them out.
 
-_Local status 2026-08-17:_ M5-01 through M5-05 are implemented on the feature branch with an
-own-session-only subject path, a masked projection serializer, cooldown enforcement, and anti-IDOR /
-no-cleartext tests. Items remain unchecked until committed and CI is green.
+_Completed 2026-08-17:_ M5-01 through M5-05 are committed and green on PR #3.
 
 ## M6 — Workspace sync & batch scans
 
