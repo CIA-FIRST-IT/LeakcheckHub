@@ -41,10 +41,10 @@ from app.models import (
 from app.platform_settings import SettingKey
 from app.routers.analyst import (
     _ANALYST_GUARD,
-    _configured_client,
     _csv_cell,
     reveal_finding_password,
 )
+from app.scan_runtime import configured_client
 
 NOW = datetime(2026, 8, 17, 12, tzinfo=UTC)
 
@@ -234,12 +234,12 @@ async def test_configured_client_is_shared_until_platform_settings_change() -> N
         }
     )
 
-    first = await _configured_client(request, object())  # type: ignore[arg-type]
-    second = await _configured_client(request, object())  # type: ignore[arg-type]
+    first = await configured_client(request, object())  # type: ignore[arg-type]
+    second = await configured_client(request, object())  # type: ignore[arg-type]
     assert first is second
 
     store.values = {SettingKey.LEAKCHECK_API_KEY: "rotated-fixture-key"}
-    rotated = await _configured_client(request, object())  # type: ignore[arg-type]
+    rotated = await configured_client(request, object())  # type: ignore[arg-type]
     assert rotated is not first
 
 

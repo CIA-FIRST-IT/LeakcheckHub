@@ -29,6 +29,7 @@ class SettingKey(StrEnum):
     LEAKCHECK_RPS = "leakcheck_rps"
     LEAKCHECK_CONCURRENCY = "leakcheck_concurrency"
     LEAKCHECK_MAX_RESPONSE_BYTES = "leakcheck_max_response_bytes"
+    SELF_CHECK_COOLDOWN_SECONDS = "self_check_cooldown_seconds"
     GOOGLE_CLIENT_ID = "google_client_id"
     GOOGLE_CLIENT_SECRET = "google_client_secret"  # noqa: S105  # nosec B105
     GOOGLE_REDIRECT_URI = "google_redirect_uri"

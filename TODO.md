@@ -125,6 +125,10 @@ _Completed 2026-08-17:_ M4-01 through M4-07 are committed and green on PR #2.
 
 **Done when:** a `User` sees only their own findings, masked, and can close them out.
 
+_Local status 2026-08-17:_ M5-01 through M5-05 are implemented on the feature branch with an
+own-session-only subject path, a masked projection serializer, cooldown enforcement, and anti-IDOR /
+no-cleartext tests. Items remain unchecked until committed and CI is green.
+
 ## M6 — Workspace sync & batch scans
 
 - [ ] `M6-01` Service-account client, domain-wide delegation, read-only Directory scopes
@@ -193,7 +197,8 @@ _Completed 2026-08-17:_ M4-01 through M4-07 are committed and green on PR #2.
       field and the docs don't state one. Check the dashboard or contract; our own recorded `quota`
       history will also reveal it within a few days.
 - [ ] `Q-01c` **Rotate the LeakCheck API key before production.** The current key was pasted into a chat
-      transcript during planning. It is not in the repo and must never be committed — `.env` only.
+      transcript during planning. It is not in the repo and must never be committed; enter the rotated
+      value only through encrypted Platform Settings.
 - [ ] `Q-02` Workspace domain allow-list for the `hd` claim, and which admin the service account impersonates
 - [ ] `Q-03` SOC distribution address for alert emails
 - [ ] `Q-04` Wazuh manager URL + DFIR-IRIS URL, customer ID, and API credentials

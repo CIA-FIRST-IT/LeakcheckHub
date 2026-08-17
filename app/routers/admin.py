@@ -55,6 +55,9 @@ class SettingsUpdate(BaseModel):
     leakcheck_max_response_bytes: Annotated[
         int | None, Field(default=None, ge=1024, le=128 * 1024 * 1024)
     ]
+    self_check_cooldown_seconds: Annotated[
+        int | None, Field(default=None, ge=60, le=30 * 24 * 60 * 60)
+    ]
     google_client_id: str | None = Field(default=None, max_length=512)
     google_client_secret: str | None = Field(default=None, max_length=2048)
     google_redirect_uri: str | None = Field(default=None, max_length=2048)
