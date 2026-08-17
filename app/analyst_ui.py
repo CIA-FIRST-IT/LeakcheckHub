@@ -248,12 +248,19 @@ def remediation_markup(finding_id: uuid.UUID, *, remediated: bool) -> str:
     )
 
 
-def page(title: str, content: str, *, user: User) -> str:
-    admin_link = (
-        '<a href="/admin/settings">Platform settings</a>'
-        if user.role is UserRole.SUPER_ADMIN
-        else ""
-    )
+def page(
+    title: str,
+    content: str,
+    *,
+    user: User,
+    extra_styles: tuple[str, ...] = (),
+    extra_scripts: tuple[str, ...] = (),
+) -> str:
+    admin_links = ""
+    if user.role is UserRole.SUPER_ADMIN:
+        admin_links = '<a href="/admin/settings">Settings</a><a href="/account/profile">Profile</a>'
+    styles = "".join(f'<link rel="stylesheet" href="{_h(path)}">' for path in extra_styles)
+    scripts = "".join(f'<script src="{_h(path)}" defer></script>' for path in extra_scripts)
     return "".join(
         (
             '<!doctype html><html lang="en"><head><meta charset="utf-8">',
@@ -262,19 +269,19 @@ def page(title: str, content: str, *, user: User) -> str:
             '{"includeIndicatorStyles":false,"allowEval":false,"allowScriptTags":false}',
             "'>",
             f"<title>{_h(title)} · LeakCheck Hub</title>",
-            '<link rel="stylesheet" href="/static/analyst.css">',
+            '<link rel="stylesheet" href="/static/analyst.css?v=3">',
+            styles,
             '<script src="/static/htmx-2.0.10.min.js" defer></script>',
-            '<script src="/static/analyst.js" defer></script></head><body>',
+            '<script src="/static/analyst.js" defer></script>',
+            scripts,
+            "</head><body>",
             '<header class="topbar"><a class="brand" href="/analyst">',
             '<span class="brand-mark" aria-hidden="true">L</span><span>LeakCheck Hub</span></a>',
-            '<nav aria-label="Primary"><a href="/analyst">Checks</a>',
-            '<a href="/analyst/batches">Batches</a>',
-            '<a href="/analyst/schedules">Schedules</a>',
-            '<a href="/analyst/notifications">Notifications</a>',
-            '<a href="/analyst/watchlist">Watchlist</a>',
-            admin_link,
+            '<nav aria-label="Primary"><a href="/analyst">Scan</a>',
+            admin_links,
+            '<a href="/analyst/schedules">Schedule</a>',
             '</nav><div class="user-chip"><span>',
-            _h(user.display_name),
+            _h(user.email),
             "</span><small>",
             _h(user.role.value.replace("_", " ")),
             "</small></div></header><main>",

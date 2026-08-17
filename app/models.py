@@ -608,6 +608,11 @@ class Schedule(Base):
         Integer, nullable=False, default=300, server_default="300"
     )
     last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_batch_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("scan_batches.id", name="fk_schedules_last_batch_id", ondelete="SET NULL"),
+        index=True,
+    )
     next_run_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     last_error: Mapped[str | None] = mapped_column(String(255))
     created_by: Mapped[uuid.UUID] = mapped_column(

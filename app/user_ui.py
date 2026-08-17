@@ -16,15 +16,15 @@ def dashboard_page(user: User, findings: tuple[dict[str, object], ...], *, can_c
             "<p>Your portal has no stored findings for this email address.</p></section>"
         )
     button = (
-        '<button type="submit">Check my work email</button>'
+        '<button type="submit">Scan now</button>'
         if can_check
-        else '<button type="button" disabled>Check available after cooldown</button>'
+        else '<button type="button" disabled>Scan available after cooldown</button>'
     )
     content = "".join(
         (
-            '<section class="hero"><p class="eyebrow">Your exposure record</p><h1>',
-            _h(user.display_name),
-            "</h1><p>Results are limited to the work email on your signed-in account. ",
+            '<section class="hero user-portal-hero"><p class="eyebrow">Signed in as</p><h1>',
+            _h(user.email),
+            "</h1><p>Results are limited to this email address. ",
             "Passwords are always masked here.</p>",
             '<form action="/portal/check" method="post" hx-post="/portal/check" ',
             'hx-target="#self-check-message" hx-swap="innerHTML">',
@@ -141,12 +141,11 @@ def _page(title: str, content: str, user: User) -> str:
             '<link rel="stylesheet" href="/static/analyst.css">',
             '<script src="/static/htmx-2.0.10.min.js" defer></script>',
             '<script src="/static/analyst.js" defer></script></head><body>',
-            '<header class="topbar"><a class="brand" href="/portal">',
+            '<header class="topbar user-topbar"><a class="brand" href="/portal">',
             '<span class="brand-mark" aria-hidden="true">L</span><span>LeakCheck Hub</span></a>',
-            '<nav aria-label="Primary"><a href="/portal">My exposures</a></nav>',
             '<div class="user-chip"><span>',
-            _h(user.display_name),
-            "</span><small>private view</small></div></header><main>",
+            _h(user.email),
+            "</span><small>private account</small></div></header><main>",
             content,
             "</main><footer>Your signed-in identity defines every result on this page</footer>",
             "</body></html>",

@@ -89,6 +89,16 @@ def test_dashboard_contains_exactly_six_supported_check_forms_and_local_htmx() -
     assert '"allowScriptTags":false' in body
     assert 'type="password"' in body
     assert "cleartext is sent to LeakCheck" in body
+    assert ">Scan</a>" in body
+    assert '<a href="/analyst/schedules">Schedule</a>' in body
+    assert "Settings" not in body
+    assert "Profile" not in body
+    assert "Notifications" not in body
+    assert "Watchlist" not in body
+
+    admin_body = analyst_dashboard(make_user(UserRole.SUPER_ADMIN), ())
+    assert '<a href="/admin/settings">Settings</a>' in admin_body
+    assert '<a href="/account/profile">Profile</a>' in admin_body
 
 
 def test_pending_scan_uses_polling_and_failure_never_displays_error_detail() -> None:
