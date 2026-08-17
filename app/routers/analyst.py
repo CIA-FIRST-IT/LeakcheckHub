@@ -371,7 +371,9 @@ async def export_subject_csv(
                 _csv_cell(value)
                 for value in (
                     item.source,
-                    item.breach_date.isoformat() if item.breach_date else "",
+                    item.breach_date.isoformat()
+                    if item.breach_date
+                    else item.breach_date_text or "",
                     item.collected_date.isoformat() if item.collected_date else "",
                     item.email or "",
                     item.username or "",
@@ -446,6 +448,7 @@ async def _finding_views(
             id=finding.id,
             source=source.name,
             breach_date=source.breach_date,
+            breach_date_text=_raw_breach_date(finding.raw, source.extra),
             collected_date=_raw_date(finding.raw.get("collected")),
             fields=tuple(finding.fields),
             email=finding.email,
@@ -514,6 +517,28 @@ def _raw_date(value: object) -> date | None:
         return date.fromisoformat(value[:10])
     except ValueError:
         return None
+
+
+def _raw_breach_date(raw: dict[str, object], extra: dict[str, object]) -> str | None:
+    raw_source = raw.get("source")
+    raw_value = raw_source.get("breach_date") if isinstance(raw_source, dict) else None
+    for value in (raw_value, extra.get("vendor_breach_date")):
+        if not isinstance(value, str):
+            continue
+        parts = value.split("-")
+        try:
+            if len(parts) == 1 and len(parts[0]) == 4:
+                date(int(parts[0]), 1, 1)
+                return value
+            if len(parts) == 2 and len(parts[0]) == 4 and len(parts[1]) == 2:
+                date(int(parts[0]), int(parts[1]), 1)
+                return value
+            if len(parts) == 3:
+                date.fromisoformat(value)
+                return value
+        except ValueError:
+            continue
+    return None
 
 
 def _raw_value_text(value: object) -> str:

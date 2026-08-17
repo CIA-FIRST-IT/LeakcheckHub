@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import base64
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -17,6 +17,7 @@ from starlette.requests import Request
 from app.analyst_ui import (
     EventView,
     FindingView,
+    _breach_date_cell,
     analyst_dashboard,
     scan_status_fragment,
     subject_history_page,
@@ -42,6 +43,7 @@ from app.platform_settings import SettingKey
 from app.routers.analyst import (
     _ANALYST_GUARD,
     _csv_cell,
+    _raw_breach_date,
     _raw_date,
     _raw_origin,
     _raw_value_text,
@@ -133,6 +135,7 @@ def test_vendor_and_identity_xss_payloads_are_rendered_inert() -> None:
         id=uuid.uuid4(),
         source=f"Breach {payload}",
         breach_date=date(2026, 1, 2),
+        breach_date_text="2026-01-02",
         collected_date=date(2025, 3, 19),
         fields=(payload, "email"),
         email=f"victim+{payload}@example.test",
@@ -167,6 +170,12 @@ def test_vendor_and_identity_xss_payloads_are_rendered_inert() -> None:
     assert 'id="result-search"' in body
     assert 'class="sort-button"' in body
     assert 'data-copy-value="victim+' in body
+    assert 'id="findings-page-size"' in body
+    assert 'value="100"' in body
+    assert 'value="all"' in body
+    assert "data-resize-handle" in body
+    partial = replace(finding, breach_date=None, breach_date_text="2019-04")
+    assert ">04-2019</td>" in _breach_date_cell(partial)
 
 
 def test_list_origin_collected_date_and_raw_search_use_values_only() -> None:
@@ -182,6 +191,7 @@ def test_list_origin_collected_date_and_raw_search_use_values_only() -> None:
     assert "bill24.net" in flattened
     assert "person@example.test" in flattened
     assert "nested_key_that_must_not_match" not in flattened
+    assert _raw_breach_date({"source": {"breach_date": "2019-04"}}, {}) == "2019-04"
 
 
 @pytest.mark.anyio

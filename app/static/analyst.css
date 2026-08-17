@@ -52,6 +52,17 @@ button, .button { border: 1px solid var(--accent); border-radius: .55rem; paddin
 .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: .7rem; }
 table { width: 100%; border-collapse: collapse; min-width: 1450px; }
 th, td { text-align: left; vertical-align: top; padding: .8rem; border-bottom: 1px solid var(--line); font-size: .82rem; }
+th { position: relative; }
+.resizable-table { table-layout: fixed; }
+.column-resizer { position: absolute; top: 0; right: -.25rem; bottom: 0; width: .55rem; cursor: col-resize; touch-action: none; z-index: 2; }
+.column-resizer::after { content: ""; position: absolute; top: 20%; bottom: 20%; left: calc(50% - .5px); width: 1px; background: var(--line); }
+.column-resizer:hover::after { width: 2px; background: var(--accent); }
+.table-tools { display: flex; align-items: end; justify-content: space-between; gap: 1rem; margin: 0 0 .8rem; }
+.table-tools label { display: flex; align-items: center; gap: .6rem; }
+.table-tools select { width: auto; min-width: 5rem; }
+.pagination { display: flex; align-items: center; gap: .7rem; color: var(--muted); font-size: .8rem; }
+.pagination .button { padding: .45rem .7rem; }
+.pagination .button:disabled { opacity: .4; cursor: not-allowed; }
 th { color: var(--muted); font-size: .7rem; text-transform: uppercase; letter-spacing: .08em; background: #0a1714; }
 tr:last-child td { border-bottom: 0; }
 tr.releaked td:first-child { box-shadow: inset .22rem 0 var(--danger); }
@@ -105,4 +116,6 @@ footer { padding: 2rem; color: var(--muted); text-align: center; border-top: 1px
   .topbar { flex-wrap: wrap; gap: .8rem; }
   nav { order: 3; flex-basis: 100%; }
   h1 { font-size: 2.5rem; }
+  .table-tools { align-items: stretch; flex-direction: column; }
+  .pagination { justify-content: space-between; }
 }
