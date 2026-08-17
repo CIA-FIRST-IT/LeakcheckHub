@@ -110,6 +110,20 @@ services:
     networks:
       - internal
 
+  mailhog:
+    image: mailhog/mailhog:v1.0.1
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    ports:
+      - "127.0.0.1:8025:8025"
+    networks:
+      - internal
+
 networks:
   internal:
     internal: true

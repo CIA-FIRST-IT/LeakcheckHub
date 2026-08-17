@@ -91,6 +91,15 @@ class QueueStatus(StrEnum):
 class ScheduleKind(StrEnum):
     SCAN_OU = "scan_ou"
     SCAN_DOMAIN = "scan_domain"
+    DIGEST = "digest"
+
+
+class NotificationStatus(StrEnum):
+    PENDING = "pending"
+    DRY_RUN = "dry_run"
+    SENT = "sent"
+    SUPPRESSED = "suppressed"
+    FAILED = "failed"
 
 
 class FindingSeverity(StrEnum):
@@ -595,3 +604,36 @@ class Schedule(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
+
+
+class Notification(Base):
+    """Deduplicated user-email outbox; the body is rendered only from a fixed template."""
+
+    __tablename__ = "notifications"
+    __table_args__ = (
+        UniqueConstraint("dedupe_key", name="uq_notifications_dedupe_key"),
+        CheckConstraint("octet_length(dedupe_key) = 32", name="ck_notifications_dedupe_key"),
+        CheckConstraint("attempts >= 0", name="ck_notifications_attempts"),
+        Index("ix_notifications_claim", "status", "created_at"),
+        Index("ix_notifications_user_sent", "user_id", "sent_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", name="fk_notifications_user_id"), index=True
+    )
+    template: Mapped[str] = mapped_column(String(64), nullable=False)
+    finding_ids: Mapped[list[str]] = mapped_column(JSONB, nullable=False, default=list)
+    status: Mapped[NotificationStatus] = mapped_column(
+        Enum(NotificationStatus, name="notification_status", values_callable=_enum_values),
+        nullable=False,
+        default=NotificationStatus.PENDING,
+        server_default=NotificationStatus.PENDING.value,
+    )
+    dedupe_key: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    error: Mapped[str | None] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

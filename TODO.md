@@ -164,6 +164,11 @@ _Completed 2026-08-17:_ M7-01 through M7-04 are committed and green on PR #5.
 
 **Done when:** SOC can mail all users with unremediated leaks, by any of the four targeting modes.
 
+_Local status 2026-08-17:_ M8-01 through M8-06 are implemented with TLS-only SMTP, a development
+MailHog service, portal-link-only templates, explicit preview/confirm targeting, dry-run-on defaults,
+database dedupe, cooldown, automatic new-finding queueing, scheduled digests, and offline sender tests.
+Items remain unchecked until committed and CI is green.
+
 ## M9 — Watchlist & SIEM alerts
 
 - [ ] `M9-01` **Verify the live Wazuh and DFIR-IRIS API contracts against the real instances first** —
