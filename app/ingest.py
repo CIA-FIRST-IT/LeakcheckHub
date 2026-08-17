@@ -162,6 +162,7 @@ class SQLAlchemyIngestRepository:
                 "last_seen_at": insert_statement.excluded.last_seen_at,
                 "raw": insert_statement.excluded.raw,
                 "fields": insert_statement.excluded.fields,
+                "origin": insert_statement.excluded.origin,
             },
         ).returning(Finding, literal_column("(xmax = 0)").label("is_new"))
         result = await self._db.execute(statement)

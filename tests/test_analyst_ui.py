@@ -42,6 +42,9 @@ from app.platform_settings import SettingKey
 from app.routers.analyst import (
     _ANALYST_GUARD,
     _csv_cell,
+    _raw_date,
+    _raw_origin,
+    _raw_value_text,
     reveal_finding_password,
 )
 from app.scan_runtime import configured_client
@@ -130,6 +133,7 @@ def test_vendor_and_identity_xss_payloads_are_rendered_inert() -> None:
         id=uuid.uuid4(),
         source=f"Breach {payload}",
         breach_date=date(2026, 1, 2),
+        collected_date=date(2025, 3, 19),
         fields=(payload, "email"),
         email=f"victim+{payload}@example.test",
         username=payload,
@@ -157,6 +161,27 @@ def test_vendor_and_identity_xss_payloads_are_rendered_inert() -> None:
     assert "&lt;img src=x onerror=&quot;alert(1)&quot;&gt;" in body
     assert "&lt;script&gt;alert(1)&lt;/script&gt;" in body
     assert 'class="releaked"' in body
+    assert "02-01-2026" in body
+    assert "19-03-2025" in body
+    assert "17-08-2026 12:00" in body
+    assert 'id="result-search"' in body
+    assert 'class="sort-button"' in body
+    assert 'data-copy-value="victim+' in body
+
+
+def test_list_origin_collected_date_and_raw_search_use_values_only() -> None:
+    raw = {
+        "origin": ["bill24.net"],
+        "collected": "2025-03-19",
+        "nested_key_that_must_not_match": {"email": "person@example.test"},
+    }
+
+    assert _raw_origin(raw["origin"]) == "bill24.net"
+    assert _raw_date(raw["collected"]) == date(2025, 3, 19)
+    flattened = _raw_value_text(raw)
+    assert "bill24.net" in flattened
+    assert "person@example.test" in flattened
+    assert "nested_key_that_must_not_match" not in flattened
 
 
 @pytest.mark.anyio
