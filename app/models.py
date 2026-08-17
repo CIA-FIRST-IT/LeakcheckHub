@@ -88,6 +88,11 @@ class QueueStatus(StrEnum):
     FAILED = "failed"
 
 
+class ScheduleKind(StrEnum):
+    SCAN_OU = "scan_ou"
+    SCAN_DOMAIN = "scan_domain"
+
+
 class FindingSeverity(StrEnum):
     LOW = "low"
     MEDIUM = "medium"
@@ -557,3 +562,36 @@ class ScanQueue(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class Schedule(Base):
+    """PostgreSQL-backed recurring batch definition evaluated by APScheduler cron triggers."""
+
+    __tablename__ = "schedules"
+    __table_args__ = (
+        CheckConstraint("misfire_grace_seconds >= 0", name="ck_schedules_misfire_grace"),
+        Index("ix_schedules_due", "enabled", "next_run_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    kind: Mapped[ScheduleKind] = mapped_column(
+        Enum(ScheduleKind, name="schedule_kind", values_callable=_enum_values), nullable=False
+    )
+    target: Mapped[str] = mapped_column(String(1024), nullable=False)
+    cron: Mapped[str] = mapped_column(String(255), nullable=False)
+    timezone: Mapped[str] = mapped_column(String(255), nullable=False)
+    enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+    misfire_grace_seconds: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=300, server_default="300"
+    )
+    last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    next_run_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_error: Mapped[str | None] = mapped_column(String(255))
+    created_by: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", name="fk_schedules_created_by"), index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )

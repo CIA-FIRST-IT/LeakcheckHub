@@ -150,6 +150,10 @@ _Completed 2026-08-17:_ M6-01 through M6-05 are committed and green on PR #4.
 
 **Done when:** a nightly OU scan and a weekly domain scan run unattended.
 
+_Local status 2026-08-17:_ M7-01 through M7-04 are implemented with PostgreSQL as the canonical job
+store, APScheduler cron/timezone evaluation, transaction-scoped advisory leader election, audited CRUD,
+and deterministic leader/misfire tests. Items remain unchecked until committed and CI is green.
+
 ## M8 — Notifications
 
 - [ ] `M8-01` SMTP sender with STARTTLS/TLS; MailHog wired for dev
