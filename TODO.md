@@ -102,19 +102,17 @@ _Completed 2026-08-17:_ M3-01 through M3-08 are committed and green on PR #1.
 
 ## M4 — Analyst UI
 
-- [ ] `M4-01` Base layout, vendored HTMX + hand-written CSS, nav
-- [ ] `M4-02` Six check forms (domain, email, password, username, origin, phone) → scan → results
-- [ ] `M4-03` Results table: source, breach date, all fields, origin, masked password, remediation state
-- [ ] `M4-04` Reveal-password action: decrypt on demand, audit-logged, `password_viewed` event
-- [ ] `M4-05` Subject history view: findings timeline, re-leak highlighting, event trail
-- [ ] `M4-06` Filters (unremediated / re-leaked / by source / by date); CSV export, audit-logged
-- [ ] `M4-07` Tests: analyst-only access, reveal is audited, **XSS payloads in breach fields render inert**
+- [x] `M4-01` Base layout, vendored HTMX + hand-written CSS, nav
+- [x] `M4-02` Six check forms (domain, email, password, username, origin, phone) → scan → results
+- [x] `M4-03` Results table: source, breach date, all fields, origin, masked password, remediation state
+- [x] `M4-04` Reveal-password action: decrypt on demand, audit-logged, `password_viewed` event
+- [x] `M4-05` Subject history view: findings timeline, re-leak highlighting, event trail
+- [x] `M4-06` Filters (unremediated / re-leaked / by source / by date); CSV export, audit-logged
+- [x] `M4-07` Tests: analyst-only access, reveal is audited, **XSS payloads in breach fields render inert**
 
 **Done when:** an analyst can run all six checks and see the complete detail stream.
 
-_Local status 2026-08-17:_ M4-01 through M4-07 are implemented on the feature branch, including
-non-blocking scan progress, reveal/audit events, filters/export, and hostile-field rendering tests.
-Items remain unchecked until the changes are committed and CI is green.
+_Completed 2026-08-17:_ M4-01 through M4-07 are committed and green on PR #2.
 
 ## M5 — Self-service user portal
 
