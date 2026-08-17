@@ -17,6 +17,7 @@ from app.middleware import SecurityHeadersMiddleware
 from app.platform_settings import PlatformSettingsStore
 from app.routers.admin import router as admin_router
 from app.routers.auth import router as auth_router
+from app.routers.findings import router as findings_router
 from app.routers.health import router as health_router
 
 
@@ -48,6 +49,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.add_middleware(SecurityHeadersMiddleware, environment=resolved_settings.environment)
     app.include_router(auth_router)
     app.include_router(admin_router)
+    app.include_router(findings_router)
     app.include_router(health_router)
     app.mount("/static", StaticFiles(directory="app/static"), name="static")
     return app
