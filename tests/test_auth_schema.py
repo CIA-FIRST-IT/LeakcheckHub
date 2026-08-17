@@ -5,7 +5,16 @@ from __future__ import annotations
 from sqlalchemy.dialects import postgresql
 from sqlalchemy.schema import CreateTable
 
-from app.models import AdminCredential, AdminLoginRateLimit, Session, User, UserRole, UserSource
+from app.models import (
+    AdminCredential,
+    AdminLoginRateLimit,
+    AuditLog,
+    PlatformSetting,
+    Session,
+    User,
+    UserRole,
+    UserSource,
+)
 
 
 def test_user_enums_use_stable_lowercase_values() -> None:
@@ -61,3 +70,15 @@ def test_local_login_ip_throttle_stores_only_a_keyed_digest() -> None:
         in statement
     )
     assert "ip_address" not in AdminLoginRateLimit.__table__.columns
+
+
+def test_platform_settings_are_ciphertext_only_and_audit_is_append_only_by_grant() -> None:
+    setting_sql = str(CreateTable(PlatformSetting.__table__).compile(dialect=postgresql.dialect()))
+    audit_sql = str(CreateTable(AuditLog.__table__).compile(dialect=postgresql.dialect()))
+
+    assert "ciphertext BYTEA NOT NULL" in setting_sql
+    assert "nonce BYTEA NOT NULL" in setting_sql
+    assert "value" not in PlatformSetting.__table__.columns
+    assert "CONSTRAINT ck_platform_settings_nonce_length" in setting_sql
+    assert "ip_hash BYTEA NOT NULL" in audit_sql
+    assert "CONSTRAINT ck_audit_log_ip_hash_length" in audit_sql

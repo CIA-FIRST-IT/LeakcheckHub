@@ -13,12 +13,13 @@ from sqlalchemy import (
     Enum,
     ForeignKey,
     Integer,
+    LargeBinary,
     String,
     Text,
     UniqueConstraint,
     func,
 )
-from sqlalchemy.dialects.postgresql import CITEXT, UUID
+from sqlalchemy.dialects.postgresql import CITEXT, JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 
@@ -189,3 +190,54 @@ class Session(Base):
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
 
     user: Mapped[User] = relationship(back_populates="sessions", lazy="raise")
+
+
+class PlatformSetting(Base):
+    """One encrypted, super-admin-managed operational setting.
+
+    Endpoint URLs are encrypted so a database-only disclosure does not reveal the organisation's
+    internal topology. The row key and schema version are authenticated as AES-GCM associated data.
+    """
+
+    __tablename__ = "platform_settings"
+    __table_args__ = (
+        CheckConstraint("octet_length(nonce) = 12", name="ck_platform_settings_nonce_length"),
+        CheckConstraint("schema_version > 0", name="ck_platform_settings_schema_version"),
+    )
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    ciphertext: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    nonce: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    schema_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1"
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now(), onupdate=func.now()
+    )
+    updated_by: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", name="fk_platform_settings_updated_by")
+    )
+
+
+class AuditLog(Base):
+    """Append-only security and human-action history."""
+
+    __tablename__ = "audit_log"
+    __table_args__ = (
+        CheckConstraint("octet_length(ip_hash) = 32", name="ck_audit_log_ip_hash_length"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    actor_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", name="fk_audit_log_actor_id"), index=True
+    )
+    action: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    target_type: Mapped[str | None] = mapped_column(String(64))
+    target_id: Mapped[str | None] = mapped_column(String(255))
+    ip_hash: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    meta: Mapped[dict[str, object]] = mapped_column(
+        JSONB, nullable=False, default=dict, server_default="{}"
+    )

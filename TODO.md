@@ -45,6 +45,9 @@ any milestone.** IDs are stable — never renumber them, append instead.
 
 **Done when:** all three roles can sign in, the guard-coverage test passes, auth events are audited.
 
+_Local status 2026-08-17:_ M1 implementation and tests are complete in the working tree. Items remain
+unchecked until the changes are committed and CI is green, per this file's completion rule.
+
 ## M2 — LeakCheck client
 
 > Read [`API-NOTES.md`](API-NOTES.md) first. The vendor docs are wrong about pagination and two of the
@@ -52,7 +55,7 @@ any milestone.** IDs are stable — never renumber them, append instead.
 
 - [ ] `M2-01` Async client: `GET /api/v2/query/{q}`, `X-API-Key`, always-explicit `type`,
       **120 s timeout** (responses up to 2.7 MB / 29 s are normal, not pathological)
-- [ ] `M2-02` Token-bucket limiter at **3 req/sec** (measured hard ceiling; `LEAKCHECK_RPS` configurable)
+- [ ] `M2-02` Token-bucket limiter at **3 req/sec** (measured hard ceiling; platform configurable)
       \+ concurrency semaphore + backoff/retry + circuit breaker.
       **Self-pace — there is no `Retry-After` or `X-RateLimit-*` header to react to.**
 - [ ] `M2-03` Per-type pagination:
@@ -74,6 +77,13 @@ any milestone.** IDs are stable — never renumber them, append instead.
 
 **Done when:** all six query types return normalized records offline from fixtures, and the
 no-offset-on-email guard is enforced by a test.
+
+- [ ] `M2-10` Encrypted, super-admin-managed platform settings for LeakCheck, Google OIDC, Wazuh,
+      DFIR-IRIS, SMTP, SOC mail, and user provisioning; operational configuration blank on shipment
+
+_Local status 2026-08-17:_ M2-01 through M2-05, M2-09, and M2-10 are implemented and covered by
+synthetic offline tests. M2-06 awaits the M3 scan table, and M2-07/M2-08 still require sanitized real
+fixtures captured after an API key is configured. Items remain unchecked pending commit and green CI.
 
 ## M3 — Data model & ingest engine ← core
 

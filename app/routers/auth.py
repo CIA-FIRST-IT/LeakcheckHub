@@ -11,26 +11,66 @@ from fastapi import APIRouter, Depends, Request, Response
 from fastapi.responses import PlainTextResponse, RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.auth.authorization import get_session_manager_for_request
+from app.audit import audit_event
+from app.auth.authorization import get_session_manager_for_request, require_role
 from app.auth.csrf import CSRFProtector
 from app.auth.google import (
     OAUTH_TRANSACTION_COOKIE_NAME,
     GoogleOIDC,
+    GoogleOIDCConfiguration,
     GoogleOIDCError,
     provision_google_user,
 )
 from app.auth.local import LocalAuthenticationResult, LocalAuthenticator
 from app.auth.session import SESSION_COOKIE_NAME, SessionManager
 from app.db import get_db_session
+from app.models import User, UserRole
+from app.platform_settings import PlatformSettingsStore, SettingKey
 
 router = APIRouter(include_in_schema=False)
 _MAX_LOCAL_LOGIN_BODY_BYTES = 4096
+_ALL_ROLES_GUARD = require_role(UserRole.USER, UserRole.ANALYST, UserRole.SUPER_ADMIN)
 
 
-async def get_google_oidc(request: Request) -> GoogleOIDC:
-    """Read the per-app OIDC client, retaining its discovery and JWKS caches."""
+async def get_google_oidc(
+    request: Request,
+) -> GoogleOIDC | None:
+    """Return a process-cached legacy client, if an existing deployment supplied one."""
 
-    return cast(GoogleOIDC, request.app.state.google_oidc)
+    cached = request.app.state.google_oidc
+    if cached is not None:
+        return cast(GoogleOIDC, cached)
+    return None
+
+
+async def _configured_google_oidc(
+    request: Request, db: AsyncSession, cached: GoogleOIDC | None
+) -> GoogleOIDC | None:
+    """Resolve encrypted database configuration only when no cached legacy client exists."""
+
+    if cached is not None:
+        return cached
+    return await _load_google_oidc(request, db)
+
+
+async def _load_google_oidc(request: Request, db: AsyncSession) -> GoogleOIDC | None:
+    store = cast(PlatformSettingsStore, request.app.state.platform_settings)
+    keys = {
+        SettingKey.GOOGLE_CLIENT_ID,
+        SettingKey.GOOGLE_CLIENT_SECRET,
+        SettingKey.GOOGLE_REDIRECT_URI,
+        SettingKey.GOOGLE_WORKSPACE_DOMAINS,
+    }
+    values = await store.read_many(db, keys)
+    if keys - values.keys():
+        return None
+    configuration = GoogleOIDCConfiguration(
+        client_id=values[SettingKey.GOOGLE_CLIENT_ID],
+        client_secret=values[SettingKey.GOOGLE_CLIENT_SECRET],
+        redirect_uri=values[SettingKey.GOOGLE_REDIRECT_URI],
+        allowed_domains=store.decode_domains(values[SettingKey.GOOGLE_WORKSPACE_DOMAINS]),
+    )
+    return GoogleOIDC(request.app.state.settings, configuration=configuration)
 
 
 async def get_local_authenticator(request: Request) -> LocalAuthenticator:
@@ -60,15 +100,29 @@ async def issue_csrf_token(
 
 @router.get("/auth/google/login", response_model=None)
 async def start_google_login(
-    google_oidc: GoogleOIDC = Depends(get_google_oidc),  # noqa: B008
+    request: Request,
+    db: AsyncSession = Depends(get_db_session),  # noqa: B008
+    google_oidc: GoogleOIDC | None = Depends(get_google_oidc),  # noqa: B008
 ) -> RedirectResponse | PlainTextResponse:
     """Start a code-only Google login after binding state, nonce, and PKCE to one browser."""
 
+    google_oidc = await _configured_google_oidc(request, db, google_oidc)
+    if google_oidc is None:
+        await audit_event(
+            db,
+            request,
+            request.app.state.settings,
+            action="auth.google_failed",
+            meta={"reason": "unconfigured"},
+        )
+        return _authentication_failed(status_code=503)
     transaction = google_oidc.begin_transaction()
     try:
         authorization_url = await google_oidc.authorization_url(transaction)
     except GoogleOIDCError:
+        await audit_event(db, request, request.app.state.settings, action="auth.google_failed")
         return _authentication_failed(status_code=503)
+    await audit_event(db, request, request.app.state.settings, action="auth.google_started")
     response = RedirectResponse(authorization_url, status_code=303)
     response.set_cookie(
         key=OAUTH_TRANSACTION_COOKIE_NAME,
@@ -87,7 +141,7 @@ async def start_google_login(
 async def finish_google_login(
     request: Request,
     db: AsyncSession = Depends(get_db_session),  # noqa: B008
-    google_oidc: GoogleOIDC = Depends(get_google_oidc),  # noqa: B008
+    google_oidc: GoogleOIDC | None = Depends(get_google_oidc),  # noqa: B008
     session_manager: SessionManager = Depends(get_session_manager_for_request),  # noqa: B008
     csrf_protector: CSRFProtector = Depends(get_csrf_protector),  # noqa: B008
     code: str | None = None,
@@ -96,6 +150,16 @@ async def finish_google_login(
 ) -> RedirectResponse | PlainTextResponse:
     """Exchange and validate a Google code, then provision and issue a rotated portal session."""
 
+    google_oidc = await _configured_google_oidc(request, db, google_oidc)
+    if google_oidc is None:
+        await audit_event(
+            db,
+            request,
+            request.app.state.settings,
+            action="auth.google_failed",
+            meta={"reason": "unconfigured"},
+        )
+        return _authentication_failed(status_code=503)
     transaction = google_oidc.read_transaction_cookie(
         request.cookies.get(OAUTH_TRANSACTION_COOKIE_NAME)
     )
@@ -109,6 +173,7 @@ async def finish_google_login(
         or not hmac.compare_digest(state.encode("ascii"), transaction.state.encode("ascii"))
         or request.client is None
     ):
+        await audit_event(db, request, request.app.state.settings, action="auth.google_failed")
         return _authentication_failed()
     try:
         identity = await google_oidc.exchange_and_verify(code, transaction)
@@ -123,8 +188,18 @@ async def finish_google_login(
             user_agent=request.headers.get("user-agent"),
         )
         user.last_login_at = datetime.now(UTC)
+        await audit_event(
+            db,
+            request,
+            request.app.state.settings,
+            action="auth.google_succeeded",
+            actor_id=user.id,
+            target_type="user",
+            target_id=str(user.id),
+        )
         await db.flush()
     except GoogleOIDCError:
+        await audit_event(db, request, request.app.state.settings, action="auth.google_failed")
         return _authentication_failed()
 
     response = RedirectResponse("/", status_code=303)
@@ -147,6 +222,7 @@ async def finish_local_login(
 
     credentials = await _read_local_login_credentials(request)
     if credentials is None or request.client is None:
+        await audit_event(db, request, request.app.state.settings, action="auth.local_failed")
         return _local_authentication_failed()
     username, password, totp_code = credentials
     authenticated: LocalAuthenticationResult = await local_authenticator.authenticate(
@@ -157,6 +233,7 @@ async def finish_local_login(
         client_ip=request.client.host,
     )
     if authenticated.user is None:
+        await audit_event(db, request, request.app.state.settings, action="auth.local_failed")
         return _local_authentication_failed()
 
     await session_manager.revoke(db, token=request.cookies.get(SESSION_COOKIE_NAME))
@@ -166,9 +243,44 @@ async def finish_local_login(
         client_ip=request.client.host,
         user_agent=request.headers.get("user-agent"),
     )
+    authenticated.user.last_login_at = datetime.now(UTC)
+    await audit_event(
+        db,
+        request,
+        request.app.state.settings,
+        action="auth.local_succeeded",
+        actor_id=authenticated.user.id,
+        target_type="user",
+        target_id=str(authenticated.user.id),
+    )
     response = RedirectResponse("/", status_code=303)
     session_manager.set_cookie(response, issued)
     csrf_protector.issue(response, session_token=issued.token)
+    response.headers["Cache-Control"] = "no-store"
+    return response
+
+
+@router.post("/auth/logout", response_model=None)
+async def logout(
+    request: Request,
+    db: AsyncSession = Depends(get_db_session),  # noqa: B008
+    session_manager: SessionManager = Depends(get_session_manager_for_request),  # noqa: B008
+    current_user: User = Depends(_ALL_ROLES_GUARD),  # noqa: B008
+) -> Response:
+    """Revoke the active server-side session and clear its browser credential."""
+
+    await session_manager.revoke(db, token=request.cookies.get(SESSION_COOKIE_NAME))
+    await audit_event(
+        db,
+        request,
+        request.app.state.settings,
+        action="auth.logout",
+        actor_id=current_user.id,
+        target_type="user",
+        target_id=str(current_user.id),
+    )
+    response = Response(status_code=204)
+    session_manager.clear_cookie(response)
     response.headers["Cache-Control"] = "no-store"
     return response
 

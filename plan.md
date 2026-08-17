@@ -49,7 +49,8 @@ removes an entire network service and its auth surface from the deployment.
 ```
 app/
   main.py            # app factory, middleware, security headers, router mounting
-  config.py          # pydantic-settings; secrets from env only, fail-fast on missing
+  config.py          # bootstrap-only DB/session/root-key configuration
+  platform_settings.py # encrypted DB-backed integration configuration
   db.py              # engine, session dependency
   models.py          # all SQLAlchemy models (single file — the schema is ~12 tables)
   security.py        # RBAC dependencies, CSRF, crypto (AES-GCM), argon2, masking
@@ -340,6 +341,12 @@ stored. Rotated on privilege change and on login. Idle expiry (default 60 min) a
 Enforcement is a FastAPI dependency (`require_role(...)`) on every router, and a test enumerates
 `app.routes` asserting each non-public route carries an explicit guard — so a forgotten decorator fails
 CI rather than shipping.
+
+**Blank-slate configuration** — LeakCheck, Google OIDC, Workspace, SMTP, Wazuh, DFIR-IRIS, SOC mail,
+and other operational integrations are configured by a Super Admin in the application. Values are
+AES-256-GCM encrypted in `platform_settings`; secrets are write-only in the UI. Only pre-database
+bootstrap material (database access, session signing, the root encryption key, and host boundary)
+remains deployment configuration.
 
 **The structural anti-IDOR guarantee:** the self-service endpoint accepts **no identifier parameter at
 all**. It reads the email from the session and derives the subject server-side. There is nothing to
