@@ -46,6 +46,7 @@ from app.routers.analyst import (
     _raw_breach_date,
     _raw_date,
     _raw_origin,
+    _raw_url,
     _raw_value_text,
     reveal_finding_password,
 )
@@ -142,6 +143,7 @@ def test_vendor_and_identity_xss_payloads_are_rendered_inert() -> None:
         username=payload,
         phone=payload,
         origin=f"https://example.test/{payload}",
+        url=f"https://login.example.test/{payload}",
         password_mask=payload,  # noqa: S106 - hostile synthetic vendor-derived display value
         has_password=True,
         remediated_at=None,
@@ -170,6 +172,9 @@ def test_vendor_and_identity_xss_payloads_are_rendered_inert() -> None:
     assert 'id="result-search"' in body
     assert 'class="sort-button"' in body
     assert 'data-copy-value="victim+' in body
+    assert 'title="Copy url"' in body
+    assert "data-column-toggle checked" in body
+    assert ">Columns</summary>" in body
     assert 'id="findings-page-size"' in body
     assert 'value="100"' in body
     assert 'value="all"' in body
@@ -186,6 +191,7 @@ def test_list_origin_collected_date_and_raw_search_use_values_only() -> None:
     }
 
     assert _raw_origin(raw["origin"]) == "bill24.net"
+    assert _raw_url({"url": ["https://bill24.net/login"]}) == "https://bill24.net/login"
     assert _raw_date(raw["collected"]) == date(2025, 3, 19)
     flattened = _raw_value_text(raw)
     assert "bill24.net" in flattened

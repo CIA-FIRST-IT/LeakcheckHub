@@ -357,6 +357,7 @@ async def export_subject_csv(
             "username",
             "phone",
             "origin",
+            "url",
             "fields",
             "password_mask",
             "state",
@@ -379,6 +380,7 @@ async def export_subject_csv(
                     item.username or "",
                     item.phone or "",
                     item.origin or "",
+                    item.url or "",
                     ", ".join(item.fields),
                     item.password_mask or "",
                     "remediated" if item.remediated_at else "unremediated",
@@ -455,6 +457,7 @@ async def _finding_views(
             username=finding.username,
             phone=finding.phone,
             origin=finding.origin or _raw_origin(finding.raw.get("origin")),
+            url=_raw_url(finding.raw),
             password_mask=finding.password_mask,
             has_password=finding.password_sha256 is not None,
             remediated_at=finding.remediated_at,
@@ -507,6 +510,16 @@ def _raw_origin(value: object) -> str | None:
     if isinstance(value, list):
         origins = tuple(item.strip() for item in value if isinstance(item, str) and item.strip())
         return ", ".join(origins) or None
+    return None
+
+
+def _raw_url(raw: dict[str, object]) -> str | None:
+    """Read vendor URL fields without treating arbitrary raw values as links."""
+
+    for key in ("url", "URL"):
+        value = _raw_origin(raw.get(key))
+        if value:
+            return value
     return None
 
 

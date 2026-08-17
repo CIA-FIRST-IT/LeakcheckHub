@@ -109,6 +109,43 @@ for (const button of document.querySelectorAll(".sort-button")) {
 }
 
 const findingsTable = document.querySelector("#findings-table");
+const columnToggles = [...document.querySelectorAll("[data-column-toggle]")];
+const columnVisibilityKey = "leakcheck.findings.hidden-columns";
+
+function hiddenColumns() {
+  try {
+    const stored = JSON.parse(window.localStorage.getItem(columnVisibilityKey) || "[]");
+    return new Set(Array.isArray(stored) ? stored.map(Number) : []);
+  } catch (_) {
+    return new Set();
+  }
+}
+
+function setColumnVisibility(index, visible) {
+  if (!findingsTable) return;
+  findingsTable.querySelectorAll("col")[index]?.classList.toggle("column-hidden", !visible);
+  findingsTable.tHead?.rows[0]?.cells[index]?.classList.toggle("column-hidden", !visible);
+  for (const row of findingsTable.tBodies[0]?.rows || []) {
+    row.cells[index]?.classList.toggle("column-hidden", !visible);
+  }
+}
+
+const initiallyHiddenColumns = hiddenColumns();
+for (const toggle of columnToggles) {
+  const index = Number(toggle.value);
+  toggle.checked = !initiallyHiddenColumns.has(index);
+  setColumnVisibility(index, toggle.checked);
+  toggle.addEventListener("change", () => {
+    setColumnVisibility(index, toggle.checked);
+    const hidden = columnToggles.filter((item) => !item.checked).map((item) => Number(item.value));
+    try {
+      window.localStorage.setItem(columnVisibilityKey, JSON.stringify(hidden));
+    } catch (_) {
+      // The controls still work for this page when browser storage is unavailable.
+    }
+  });
+}
+
 for (const handle of document.querySelectorAll("[data-resize-handle]")) {
   handle.addEventListener("pointerdown", (event) => {
     if (!findingsTable) return;
@@ -138,18 +175,31 @@ for (const handle of document.querySelectorAll("[data-resize-handle]")) {
 
 renderFindingsPage();
 
+function showCopyConfirmation(event, target) {
+  document.querySelector(".copy-confirmation")?.remove();
+  const rect = target.getBoundingClientRect();
+  const x = event.clientX || rect.right;
+  const y = event.clientY || rect.top;
+  const confirmation = document.createElement("span");
+  confirmation.className = "copy-confirmation";
+  confirmation.setAttribute("role", "status");
+  confirmation.textContent = "Copied";
+  confirmation.style.left = `${Math.min(x + 10, window.innerWidth - 80)}px`;
+  confirmation.style.top = `${Math.min(y + 10, window.innerHeight - 40)}px`;
+  document.body.append(confirmation);
+  window.setTimeout(() => confirmation.remove(), 1000);
+}
+
 document.body.addEventListener("click", async (event) => {
   const target = event.target.closest("[data-copy-value]");
   if (!target) return;
   try {
     await navigator.clipboard.writeText(target.dataset.copyValue);
-    const originalTitle = target.title;
-    target.title = "Copied";
+    showCopyConfirmation(event, target);
     target.classList.add("copied");
     window.setTimeout(() => {
-      target.title = originalTitle;
       target.classList.remove("copied");
-    }, 1200);
+    }, 1000);
   } catch (_) {
     target.title = "Copy failed";
   }

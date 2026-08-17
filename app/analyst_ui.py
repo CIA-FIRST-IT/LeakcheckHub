@@ -33,6 +33,7 @@ class FindingView:
     username: str | None
     phone: str | None
     origin: str | None
+    url: str | None
     password_mask: str | None
     has_password: bool
     remediated_at: datetime | None
@@ -157,7 +158,7 @@ def subject_history_page(
     )
     rows = "".join(finding_row(item) for item in findings)
     if not rows:
-        rows = '<tr><td colspan="10" class="empty">No findings match these filters.</td></tr>'
+        rows = '<tr><td colspan="11" class="empty">No findings match these filters.</td></tr>'
     event_items = "".join(_event_item(event) for event in events)
     if not event_items:
         event_items = '<li class="empty">No recorded finding events.</li>'
@@ -176,10 +177,13 @@ def subject_history_page(
             str(len(findings)),
             " shown</span></div>",
             filter_form,
-            '<div class="table-tools"><label>Rows per page<select id="findings-page-size">',
+            '<div class="table-tools"><div class="table-config"><label>Rows per page',
+            '<select id="findings-page-size">',
             '<option value="10" selected>10</option><option value="20">20</option>',
             '<option value="50">50</option><option value="100">100</option>',
-            '<option value="all">All</option></select></label><div class="pagination">',
+            '<option value="all">All</option></select></label>',
+            _column_picker(),
+            '</div><div class="pagination">',
             '<button type="button" id="findings-prev" class="button secondary">Previous</button>',
             '<span id="findings-page-status">Page 1 of 1</span>',
             '<button type="button" id="findings-next" class="button secondary">Next</button>',
@@ -187,17 +191,18 @@ def subject_history_page(
             'class="resizable-table"><colgroup>',
             '<col style="width:11rem"><col style="width:8rem"><col style="width:8rem">',
             '<col style="width:18rem"><col style="width:15rem"><col style="width:12rem">',
-            '<col style="width:12rem"><col style="width:14rem"><col style="width:10rem">',
-            '<col style="width:7rem"></colgroup><thead><tr>',
+            '<col style="width:18rem"><col style="width:12rem"><col style="width:14rem">',
+            '<col style="width:10rem"><col style="width:7rem"></colgroup><thead><tr>',
             _sort_header("Source", 0, "text"),
             _sort_header("Breached", 1, "date"),
             _sort_header("Collected", 2, "date"),
             _sort_header("Identity", 3, "text"),
             _sort_header("Fields", 4, "text"),
             _sort_header("Origin", 5, "text"),
-            _sort_header("Password", 6, "text"),
-            _sort_header("First / last seen", 7, "date"),
-            _sort_header("Status", 8, "text"),
+            _sort_header("URL", 6, "text"),
+            _sort_header("Password", 7, "text"),
+            _sort_header("First / last seen", 8, "date"),
+            _sort_header("Status", 9, "text"),
             '<th>Actions<span class="column-resizer" data-resize-handle aria-hidden="true"></span>',
             "</th></tr></thead><tbody data-findings-body>",
             rows,
@@ -248,6 +253,8 @@ def finding_row(item: FindingView) -> str:
             f"<details><summary>Raw fields</summary><pre>{raw}</pre></details></td>",
             f'<td data-sort-value="{_h((item.origin or "").casefold())}">',
             f"{_h(item.origin) if item.origin else '—'}</td>",
+            f'<td data-sort-value="{_h((item.url or "").casefold())}">',
+            f"{_copy_value(item.url, 'URL') if item.url else '—'}</td>",
             f'<td class="password-cell" data-sort-value="{_h(item.password_mask or "")}">',
             f"{password}</td>",
             f'<td data-sort-value="{item.first_seen_at.timestamp()}">',
@@ -271,15 +278,42 @@ def _sort_header(label: str, column: int, kind: str) -> str:
     )
 
 
+def _column_picker() -> str:
+    labels = (
+        "Source",
+        "Breached",
+        "Collected",
+        "Identity",
+        "Fields",
+        "Origin",
+        "URL",
+        "Password",
+        "First / last seen",
+        "Status",
+        "Actions",
+    )
+    controls = "".join(
+        f'<label><input type="checkbox" value="{index}" data-column-toggle checked> '
+        f"{_h(label)}</label>"
+        for index, label in enumerate(labels)
+    )
+    return (
+        '<details class="column-picker"><summary class="button secondary">Columns</summary>'
+        f"<fieldset><legend>Show columns</legend>{controls}</fieldset></details>"
+    )
+
+
 def _identity_value(label: str, value: str, *, copy: bool) -> str:
+    rendered = _copy_value(value, label) if copy else _h(value)
+    return f"<span><strong>{_h(label)}</strong> {rendered}</span>"
+
+
+def _copy_value(value: str, label: str) -> str:
     escaped = _h(value)
-    rendered = (
+    return (
         f'<button type="button" class="copy-value" data-copy-value="{escaped}" '
         f'title="Copy {label.casefold()}">{escaped}</button>'
-        if copy
-        else escaped
     )
-    return f"<span><strong>{_h(label)}</strong> {rendered}</span>"
 
 
 def _identity_sort(item: FindingView) -> str:
@@ -365,10 +399,10 @@ def page(
             '{"includeIndicatorStyles":false,"allowEval":false,"allowScriptTags":false}',
             "'>",
             f"<title>{_h(title)} · LeakCheck Hub</title>",
-            '<link rel="stylesheet" href="/static/analyst.css?v=5">',
+            '<link rel="stylesheet" href="/static/analyst.css?v=6">',
             styles,
             '<script src="/static/htmx-2.0.10.min.js" defer></script>',
-            '<script src="/static/analyst.js?v=5" defer></script>',
+            '<script src="/static/analyst.js?v=6" defer></script>',
             scripts,
             "</head><body>",
             '<header class="topbar"><a class="brand" href="/analyst">',
