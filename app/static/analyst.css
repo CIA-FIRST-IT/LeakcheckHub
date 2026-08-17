@@ -50,7 +50,7 @@ button, .button { border: 1px solid var(--accent); border-radius: .55rem; paddin
 .recent-list a { display: block; padding: .8rem; border: 1px solid var(--line); border-radius: .6rem; text-decoration: none; color: var(--text); }
 .filters { display: grid; grid-template-columns: 1.2fr 2fr 1fr 1fr auto auto; gap: .7rem; align-items: end; margin: 1.2rem 0; }
 .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: .7rem; }
-table { width: 100%; border-collapse: collapse; min-width: 1450px; }
+table { width: 100%; border-collapse: collapse; min-width: 1630px; }
 th, td { text-align: left; vertical-align: top; padding: .8rem; border-bottom: 1px solid var(--line); font-size: .82rem; }
 th { position: relative; }
 .resizable-table { table-layout: fixed; }
@@ -58,8 +58,17 @@ th { position: relative; }
 .column-resizer::after { content: ""; position: absolute; top: 20%; bottom: 20%; left: calc(50% - .5px); width: 1px; background: var(--line); }
 .column-resizer:hover::after { width: 2px; background: var(--accent); }
 .table-tools { display: flex; align-items: end; justify-content: space-between; gap: 1rem; margin: 0 0 .8rem; }
+.table-config { display: flex; align-items: end; gap: .7rem; }
 .table-tools label { display: flex; align-items: center; gap: .6rem; }
 .table-tools select { width: auto; min-width: 5rem; }
+.column-picker { position: relative; margin: 0; color: var(--text); }
+.column-picker summary { list-style: none; cursor: pointer; padding: .55rem .8rem; }
+.column-picker summary::-webkit-details-marker { display: none; }
+.column-picker fieldset { position: absolute; left: 0; z-index: 5; display: grid; grid-template-columns: repeat(2, minmax(9rem, 1fr)); gap: .45rem .8rem; width: 24rem; margin: .35rem 0 0; padding: .8rem; border: 1px solid var(--line); border-radius: .6rem; background: #0a1714; box-shadow: 0 .8rem 2rem rgba(0, 0, 0, .35); }
+.column-picker legend { padding: 0 .3rem; color: var(--muted); font-size: .72rem; text-transform: uppercase; letter-spacing: .06em; }
+.column-picker fieldset label { justify-content: flex-start; font-size: .8rem; }
+.column-picker input { width: auto; margin: 0; }
+.column-hidden { display: none; }
 .pagination { display: flex; align-items: center; gap: .7rem; color: var(--muted); font-size: .8rem; }
 .pagination .button { padding: .45rem .7rem; }
 .pagination .button:disabled { opacity: .4; cursor: not-allowed; }
@@ -77,6 +86,8 @@ tr.releaked td:first-child { box-shadow: inset .22rem 0 var(--danger); }
 .revealed-password { display: block; max-width: 18rem; min-height: 0; overflow-wrap: anywhere; padding: .4rem; border: 0; background: #050b09; color: var(--warning); font-family: ui-monospace, monospace; text-align: left; }
 .copy-value { display: inline; min-height: 0; margin: 0; padding: 0; border: 0; background: none; color: var(--accent); font: inherit; font-weight: inherit; text-align: left; text-decoration: underline dotted; text-underline-offset: .2em; box-shadow: none; }
 .copy-value:hover, .copy-value.copied { background: none; color: #8af0cd; }
+.copy-confirmation { position: fixed; z-index: 50; pointer-events: none; padding: .25rem .45rem; border: 1px solid rgba(138, 240, 205, .4); border-radius: .35rem; background: #10251f; color: #8af0cd; font-size: .72rem; font-weight: 800; box-shadow: 0 .35rem 1rem rgba(0, 0, 0, .35); animation: copy-confirmation-in .12s ease-out; }
+@keyframes copy-confirmation-in { from { opacity: 0; transform: translateY(.2rem); } to { opacity: 1; transform: translateY(0); } }
 .sort-button { display: inline-flex; align-items: center; gap: .35rem; min-height: 0; margin: 0; padding: 0; border: 0; background: none; color: var(--muted); font-size: inherit; letter-spacing: inherit; text-transform: inherit; box-shadow: none; white-space: nowrap; }
 .sort-button:hover { background: none; color: var(--accent); }
 .sort-button span { color: var(--accent); }
@@ -117,5 +128,7 @@ footer { padding: 2rem; color: var(--muted); text-align: center; border-top: 1px
   nav { order: 3; flex-basis: 100%; }
   h1 { font-size: 2.5rem; }
   .table-tools { align-items: stretch; flex-direction: column; }
+  .table-config { align-items: stretch; flex-direction: column; }
+  .column-picker fieldset { position: static; grid-template-columns: 1fr; width: auto; }
   .pagination { justify-content: space-between; }
 }
