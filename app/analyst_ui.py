@@ -26,6 +26,7 @@ class FindingView:
     id: uuid.UUID
     source: str
     breach_date: date | None
+    breach_date_text: str | None
     collected_date: date | None
     fields: tuple[str, ...]
     email: str | None
@@ -175,7 +176,19 @@ def subject_history_page(
             str(len(findings)),
             " shown</span></div>",
             filter_form,
-            '<div class="table-wrap"><table id="findings-table"><thead><tr>',
+            '<div class="table-tools"><label>Rows per page<select id="findings-page-size">',
+            '<option value="10" selected>10</option><option value="20">20</option>',
+            '<option value="50">50</option><option value="100">100</option>',
+            '<option value="all">All</option></select></label><div class="pagination">',
+            '<button type="button" id="findings-prev" class="button secondary">Previous</button>',
+            '<span id="findings-page-status">Page 1 of 1</span>',
+            '<button type="button" id="findings-next" class="button secondary">Next</button>',
+            '</div></div><div class="table-wrap"><table id="findings-table" ',
+            'class="resizable-table"><colgroup>',
+            '<col style="width:11rem"><col style="width:8rem"><col style="width:8rem">',
+            '<col style="width:18rem"><col style="width:15rem"><col style="width:12rem">',
+            '<col style="width:12rem"><col style="width:14rem"><col style="width:10rem">',
+            '<col style="width:7rem"></colgroup><thead><tr>',
             _sort_header("Source", 0, "text"),
             _sort_header("Breached", 1, "date"),
             _sort_header("Collected", 2, "date"),
@@ -185,7 +198,8 @@ def subject_history_page(
             _sort_header("Password", 6, "text"),
             _sort_header("First / last seen", 7, "date"),
             _sort_header("Status", 8, "text"),
-            "<th>Actions</th></tr></thead><tbody data-findings-body>",
+            '<th>Actions<span class="column-resizer" data-resize-handle aria-hidden="true"></span>',
+            "</th></tr></thead><tbody data-findings-body>",
             rows,
             "</tbody></table></div></section>",
             '<section id="events" class="panel timeline"><div class="section-heading"><div>',
@@ -227,7 +241,7 @@ def finding_row(item: FindingView) -> str:
             f'<tr class="{row_class}" data-search-values="{search_values}">',
             f'<td data-sort-value="{_h(item.source.casefold())}"><strong>',
             f"{_h(item.source)}</strong>{badge}</td>",
-            _date_cell(item.breach_date),
+            _breach_date_cell(item),
             _date_cell(item.collected_date),
             f'<td data-sort-value="{_h(_identity_sort(item))}">{identity}</td>',
             f'<td data-sort-value="{_h(", ".join(item.fields).casefold())}">{fields}',
@@ -252,7 +266,8 @@ def remediation_control(item: FindingView) -> str:
 def _sort_header(label: str, column: int, kind: str) -> str:
     return (
         f'<th><button type="button" class="sort-button" data-sort-column="{column}" '
-        f'data-sort-kind="{_h(kind)}">{_h(label)} <span aria-hidden="true">↕</span></button></th>'
+        f'data-sort-kind="{_h(kind)}">{_h(label)} <span aria-hidden="true">↕</span></button>'
+        '<span class="column-resizer" data-resize-handle aria-hidden="true"></span></th>'
     )
 
 
@@ -275,6 +290,20 @@ def _date_cell(value: date | None) -> str:
     sort_value = value.isoformat() if value is not None else ""
     display = value.strftime("%d-%m-%Y") if value is not None else "Unknown"
     return f'<td data-sort-value="{sort_value}">{display}</td>'
+
+
+def _breach_date_cell(item: FindingView) -> str:
+    if item.breach_date is not None:
+        return _date_cell(item.breach_date)
+    value = item.breach_date_text
+    if value is None:
+        return _date_cell(None)
+    parts = value.split("-")
+    if len(parts) == 2:
+        display = f"{parts[1]}-{parts[0]}"
+    else:
+        display = value
+    return f'<td data-sort-value="{_h(value)}">{_h(display)}</td>'
 
 
 def _status_sort(item: FindingView) -> str:
@@ -336,10 +365,10 @@ def page(
             '{"includeIndicatorStyles":false,"allowEval":false,"allowScriptTags":false}',
             "'>",
             f"<title>{_h(title)} · LeakCheck Hub</title>",
-            '<link rel="stylesheet" href="/static/analyst.css?v=4">',
+            '<link rel="stylesheet" href="/static/analyst.css?v=5">',
             styles,
             '<script src="/static/htmx-2.0.10.min.js" defer></script>',
-            '<script src="/static/analyst.js?v=4" defer></script>',
+            '<script src="/static/analyst.js?v=5" defer></script>',
             scripts,
             "</head><body>",
             '<header class="topbar"><a class="brand" href="/analyst">',
