@@ -34,75 +34,71 @@ any milestone.** IDs are stable — never renumber them, append instead.
 
 ## M1 — Auth & RBAC
 
-- [ ] `M1-01` `users`, `admin_credentials`, `sessions` models + migration
-- [ ] `M1-02` Server-side session issue/verify/revoke with idle + absolute expiry
-- [ ] `M1-03` Google OIDC auth-code + PKCE, JWKS verification, `hd` allow-list, auto-provision as `User`
-- [ ] `M1-04` Super-admin local login: argon2id + mandatory TOTP, lockout, `create-superadmin` CLI
-- [ ] `M1-05` `require_role()` dependency + CSRF middleware (double-submit token)
-- [ ] `M1-06` `audit_log` model + helper; log every auth event
-- [ ] `M1-07` Tests: role matrix, session expiry/revocation, CSRF rejection, **route-guard-coverage test**
+- [x] `M1-01` `users`, `admin_credentials`, `sessions` models + migration
+- [x] `M1-02` Server-side session issue/verify/revoke with idle + absolute expiry
+- [x] `M1-03` Google OIDC auth-code + PKCE, JWKS verification, `hd` allow-list, auto-provision as `User`
+- [x] `M1-04` Super-admin local login: argon2id + mandatory TOTP, lockout, `create-superadmin` CLI
+- [x] `M1-05` `require_role()` dependency + CSRF middleware (double-submit token)
+- [x] `M1-06` `audit_log` model + helper; log every auth event
+- [x] `M1-07` Tests: role matrix, session expiry/revocation, CSRF rejection, **route-guard-coverage test**
       (enumerate `app.routes`, fail if any non-public route lacks an explicit guard)
 
 **Done when:** all three roles can sign in, the guard-coverage test passes, auth events are audited.
 
-_Local status 2026-08-17:_ M1 implementation and tests are complete in the working tree. Items remain
-unchecked until the changes are committed and CI is green, per this file's completion rule.
+_Completed 2026-08-17:_ implementation and tests are committed; CI is green on PR #1.
 
 ## M2 — LeakCheck client
 
 > Read [`API-NOTES.md`](API-NOTES.md) first. The vendor docs are wrong about pagination and two of the
 > deviations cause **silent false negatives**. Build against the measurements, not the docs.
 
-- [ ] `M2-01` Async client: `GET /api/v2/query/{q}`, `X-API-Key`, always-explicit `type`,
+- [x] `M2-01` Async client: `GET /api/v2/query/{q}`, `X-API-Key`, always-explicit `type`,
       **120 s timeout** (responses up to 2.7 MB / 29 s are normal, not pathological)
-- [ ] `M2-02` Token-bucket limiter at **3 req/sec** (measured hard ceiling; platform configurable)
+- [x] `M2-02` Token-bucket limiter at **3 req/sec** (measured hard ceiling; platform configurable)
       \+ concurrency semaphore + backoff/retry + circuit breaker.
       **Self-pace — there is no `Retry-After` or `X-RateLimit-*` header to react to.**
-- [ ] `M2-03` Per-type pagination:
+- [x] `M2-03` Per-type pagination:
       - email → send **no `limit`, and never `offset`** (`offset>0` returns `found:0`, indistinguishable
         from "no leaks"). Enforce at the type level so callers cannot pass it.
       - domain → `limit=1000` + increasing `offset`, page until a short/empty page; `found` is page size,
         **not** the total, so `truncated` comes from loop termination, never a `found` comparison.
-- [ ] `M2-04` Hard response-size cap (default 32 MB) that errors loudly instead of exhausting memory
-- [ ] `M2-05` Tolerant response parser — every `source` subfield optional (`name` is often `"Unknown"`,
+- [x] `M2-04` Hard response-size cap (default 32 MB) that errors loudly instead of exhausting memory
+- [x] `M2-05` Tolerant response parser — every `source` subfield optional (`name` is often `"Unknown"`,
       `breach_date` often `null`); retain the full record in `raw`
-- [ ] `M2-06` Quota tracking: record `quota` on every scan. Note it **lags one request** and that
+- [x] `M2-06` Quota tracking: record `quota` on every scan. Note it **lags one request** and that
       misses cost 0 — never gate a scan on a pre-flight quota read
 - [ ] `M2-07` **Capture real fixtures for all six types**, including one large response (`admin@example.com`,
       8,240 records) as the batching/perf fixture
 - [ ] `M2-08` Tests against fixtures incl. 429, 400 `Invalid type`/`Invalid limit`, 401 `Invalid X-API-Key`,
       malformed body, empty result, oversized body
-- [ ] `M2-09` **Regression test: an email query is never issued with `offset`** — this is the guard against
+- [x] `M2-09` **Regression test: an email query is never issued with `offset`** — this is the guard against
       the worst failure mode in the app (reporting a breached user as clean)
 
 **Done when:** all six query types return normalized records offline from fixtures, and the
 no-offset-on-email guard is enforced by a test.
 
-- [ ] `M2-10` Encrypted, super-admin-managed platform settings for LeakCheck, Google OIDC, Wazuh,
+- [x] `M2-10` Encrypted, super-admin-managed platform settings for LeakCheck, Google OIDC, Wazuh,
       DFIR-IRIS, SMTP, SOC mail, and user provisioning; operational configuration blank on shipment
 
-_Local status 2026-08-17:_ M2-01 through M2-06, M2-09, and M2-10 are implemented and covered by
-synthetic offline tests. M2-07/M2-08 still require sanitized real fixtures captured after an API key
-is configured. Items remain unchecked pending commit and green CI.
+_Status 2026-08-17:_ implemented items are committed and green on PR #1. M2-07/M2-08 still require
+sanitized real fixtures captured after an API key is configured.
 
 ## M3 — Data model & ingest engine ← core
 
-- [ ] `M3-01` `subjects`, `scans`, `breach_sources`, `findings`, `finding_events` + migration
-- [ ] `M3-02` Per-kind normalization (email NFKC+lower, domain punycode, phone E.164, username, origin)
-- [ ] `M3-03` AES-256-GCM envelope crypto with finding-id AAD; mask / length / charset computation
-- [ ] `M3-04` Fingerprint function + idempotent `ON CONFLICT` upsert returning `is_new`
+- [x] `M3-01` `subjects`, `scans`, `breach_sources`, `findings`, `finding_events` + migration
+- [x] `M3-02` Per-kind normalization (email NFKC+lower, domain punycode, phone E.164, username, origin)
+- [x] `M3-03` AES-256-GCM envelope crypto with finding-id AAD; mask / length / charset computation
+- [x] `M3-04` Fingerprint function + idempotent `ON CONFLICT` upsert returning `is_new`
       (password SHA-256 is part of the fingerprint — see plan.md §3)
-- [ ] `M3-05` Re-leak detection: `superseded_by_id`, `re_leaked` event, severity escalation
-- [ ] `M3-06` Remediation API: mark remediated / un-remediate, with event trail
-- [ ] `M3-07` **Tests: the full Bob/Canva scenario** — 2019 leak → remediate → re-scan stays remediated
+- [x] `M3-05` Re-leak detection: `superseded_by_id`, `re_leaked` event, severity escalation
+- [x] `M3-06` Remediation API: mark remediated / un-remediate, with event trail
+- [x] `M3-07` **Tests: the full Bob/Canva scenario** — 2019 leak → remediate → re-scan stays remediated
       → 2026 leak with a new password creates a fresh unremediated finding flagged as a re-leak
-- [ ] `M3-08` Tests: repeat-ingest idempotency, passwordless records, crypto round-trip, AAD tamper
+- [x] `M3-08` Tests: repeat-ingest idempotency, passwordless records, crypto round-trip, AAD tamper
 
 **Done when:** the Bob scenario passes end to end and re-ingest produces zero spurious new findings.
 
-_Local status 2026-08-17:_ M3-01 through M3-08 are implemented on the feature branch, including the
-Bob/Canva scenario, remediation API, passwordless/idempotency cases, and AES-GCM AAD tamper tests.
-Items remain unchecked until the changes are committed and CI is green.
+_Completed 2026-08-17:_ M3-01 through M3-08 are committed and green on PR #1.
 
 ## M4 — Analyst UI
 
@@ -115,6 +111,10 @@ Items remain unchecked until the changes are committed and CI is green.
 - [ ] `M4-07` Tests: analyst-only access, reveal is audited, **XSS payloads in breach fields render inert**
 
 **Done when:** an analyst can run all six checks and see the complete detail stream.
+
+_Local status 2026-08-17:_ M4-01 through M4-07 are implemented on the feature branch, including
+non-blocking scan progress, reveal/audit events, filters/export, and hostile-field rendering tests.
+Items remain unchecked until the changes are committed and CI is green.
 
 ## M5 — Self-service user portal
 
