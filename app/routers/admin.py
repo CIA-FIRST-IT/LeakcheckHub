@@ -19,8 +19,19 @@ from app.audit import audit_event
 from app.auth.authorization import require_role
 from app.auth.local import normalise_admin_email, normalise_display_name
 from app.db import get_db_session
+from app.google_workspace import (
+    WorkspaceAPIError,
+    WorkspaceConfigurationError,
+    configured_workspace_client,
+    sync_workspace_users,
+)
 from app.models import User, UserRole, UserSource
-from app.platform_settings import SECRET_KEYS, PlatformSettingsStore, SettingKey
+from app.platform_settings import (
+    SECRET_KEYS,
+    PlatformSettingError,
+    PlatformSettingsStore,
+    SettingKey,
+)
 
 _ADMIN_GUARD = require_role(UserRole.SUPER_ADMIN)
 _MAX_BODY_BYTES = 32 * 1024
@@ -228,6 +239,7 @@ async def settings_page(
             'data-dialog-open="google-workspace-help">?</button></h2>',
             "<p>Read-only Directory access using domain-wide delegation.</p>",
             workspace_fields,
+            '<p><button type="button" id="workspace-sync">Sync Workspace users now</button></p>',
             "<h2>Other integrations</h2>",
             other_fields,
             '<button type="submit">Save settings</button></form>',
@@ -320,6 +332,46 @@ async def create_user(
     return JSONResponse(
         {"id": str(user.id), "email": user.email, "role": user.role.value}, status_code=201
     )
+
+
+@router.post("/workspace/sync", response_model=None)
+async def sync_workspace(
+    request: Request,
+    db: AsyncSession = Depends(get_db_session),  # noqa: B008
+    store: PlatformSettingsStore = Depends(get_platform_store),  # noqa: B008
+    current_user: User = Depends(_ADMIN_GUARD),  # noqa: B008
+) -> JSONResponse:
+    """Run a complete additive Directory sync; only sync-owned departed users are disabled."""
+
+    client = None
+    try:
+        client = await configured_workspace_client(db, store)
+        users = await client.list_users()
+    except (PlatformSettingError, WorkspaceAPIError, WorkspaceConfigurationError) as exc:
+        await audit_event(
+            db,
+            request,
+            request.app.state.settings,
+            action="admin.workspace_sync_failed",
+            actor_id=current_user.id,
+            target_type="workspace",
+            meta={"reason": type(exc).__name__},
+        )
+        raise HTTPException(status_code=502, detail="Workspace sync failed.") from exc
+    finally:
+        if client is not None:
+            await client.aclose()
+    result = await sync_workspace_users(db, users)
+    await audit_event(
+        db,
+        request,
+        request.app.state.settings,
+        action="admin.workspace_synced",
+        actor_id=current_user.id,
+        target_type="workspace",
+        meta={"seen": result.seen, "deactivated": result.deactivated},
+    )
+    return JSONResponse({"seen": result.seen, "deactivated": result.deactivated})
 
 
 async def _json_body(request: Request) -> object:

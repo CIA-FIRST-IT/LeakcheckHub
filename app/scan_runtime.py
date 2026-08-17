@@ -43,22 +43,7 @@ async def configured_client(request: Request, db: AsyncSession) -> LeakCheckClie
             and request.app.state.leakcheck_client_config_digest == digest
         ):
             return cached
-        client = LeakCheckClient(
-            values.get(SettingKey.LEAKCHECK_API_KEY, ""),
-            requests_per_second=_setting_int(
-                values, SettingKey.LEAKCHECK_RPS, 3, minimum=1, maximum=20
-            ),
-            concurrency=_setting_int(
-                values, SettingKey.LEAKCHECK_CONCURRENCY, 3, minimum=1, maximum=50
-            ),
-            max_response_bytes=_setting_int(
-                values,
-                SettingKey.LEAKCHECK_MAX_RESPONSE_BYTES,
-                32 * 1024 * 1024,
-                minimum=1024,
-                maximum=128 * 1024 * 1024,
-            ),
-        )
+        client = client_from_platform_values(values)
         request.app.state.leakcheck_client = client
         request.app.state.leakcheck_client_config_digest = digest
         return client
@@ -153,6 +138,27 @@ def actor_scan_lock(actor_id: uuid.UUID) -> int:
         hashlib.sha256(b"leakcheck/interactive-scan/v1\x00" + actor_id.bytes).digest()[:8],
         "big",
         signed=True,
+    )
+
+
+def client_from_platform_values(values: dict[SettingKey, str]) -> LeakCheckClient:
+    """Construct the same bounded client for web and standalone worker processes."""
+
+    return LeakCheckClient(
+        values.get(SettingKey.LEAKCHECK_API_KEY, ""),
+        requests_per_second=_setting_int(
+            values, SettingKey.LEAKCHECK_RPS, 3, minimum=1, maximum=20
+        ),
+        concurrency=_setting_int(
+            values, SettingKey.LEAKCHECK_CONCURRENCY, 3, minimum=1, maximum=50
+        ),
+        max_response_bytes=_setting_int(
+            values,
+            SettingKey.LEAKCHECK_MAX_RESPONSE_BYTES,
+            32 * 1024 * 1024,
+            minimum=1024,
+            maximum=128 * 1024 * 1024,
+        ),
     )
 
 

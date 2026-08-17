@@ -139,6 +139,10 @@ _Completed 2026-08-17:_ M5-01 through M5-05 are committed and green on PR #3.
 
 **Done when:** "scan every user in OU X" completes without exceeding the RPS budget.
 
+_Local status 2026-08-17:_ M6-01 through M6-05 are implemented with read-only delegated Directory
+REST access, additive/deactivation sync, durable resumable queue claims, batch UI/progress, and offline
+concurrency/rate-limit tests. Items remain unchecked until committed and CI is green.
+
 ## M7 — Scheduling
 
 - [ ] `M7-01` `schedules` model + APScheduler on the Postgres job store
