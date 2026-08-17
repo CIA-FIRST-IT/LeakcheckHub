@@ -15,6 +15,7 @@ from app.db import get_async_session_factory
 from app.models import Scan, ScanStatus, ScanTrigger
 from app.platform_settings import PlatformSettingsStore, SettingKey
 from app.scan_runtime import client_from_platform_values, execute_scan
+from app.scheduling import dispatch_due_schedules
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -38,6 +39,8 @@ async def run() -> None:
     client = None
     try:
         while True:
+            async with sessions() as db:
+                await dispatch_due_schedules(db)
             async with sessions() as db:
                 work = await claim_next(db, worker_id)
             if work is None:

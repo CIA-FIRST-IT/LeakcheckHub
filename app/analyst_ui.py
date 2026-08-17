@@ -269,6 +269,7 @@ def page(title: str, content: str, *, user: User) -> str:
             '<span class="brand-mark" aria-hidden="true">L</span><span>LeakCheck Hub</span></a>',
             '<nav aria-label="Primary"><a href="/analyst">Checks</a>',
             '<a href="/analyst/batches">Batches</a>',
+            '<a href="/analyst/schedules">Schedules</a>',
             admin_link,
             '</nav><div class="user-chip"><span>',
             _h(user.display_name),
