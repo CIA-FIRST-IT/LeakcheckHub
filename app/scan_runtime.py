@@ -17,6 +17,7 @@ from app.ingest import SQLAlchemyIngestRepository
 from app.leakcheck import LeakCheckClient
 from app.models import Scan, ScanStatus, Subject
 from app.normalization import NormalizedSubject
+from app.notifications import enqueue_new_findings
 from app.platform_settings import PlatformSettingError, PlatformSettingsStore, SettingKey
 from app.scans import run_scan
 
@@ -73,7 +74,7 @@ async def execute_scan(
             subject.first_scanned_at = started_at
         await db.commit()
         try:
-            await run_scan(
+            summary = await run_scan(
                 client,
                 SQLAlchemyIngestRepository(db),
                 settings,
@@ -81,6 +82,7 @@ async def execute_scan(
                 subject=subject,
                 query=query,
             )
+            await enqueue_new_findings(db, subject=subject, finding_ids=summary.new_finding_ids)
         except Exception as exc:
             await db.rollback()
             failed_scan_result = await db.execute(select(Scan).where(Scan.id == scan_id))

@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.batches import create_batch
 from app.models import BatchTarget, Schedule, ScheduleKind
+from app.notifications import enqueue_digest_notifications
 
 _LEADER_LOCK_ID = 5_114_293_001
 
@@ -57,16 +58,19 @@ async def dispatch_due_schedules(db: AsyncSession, *, now: datetime | None = Non
         if tick - scheduled_for > timedelta(seconds=schedule.misfire_grace_seconds):
             schedule.last_error = "misfire grace exceeded"
             continue
-        target_type = (
-            BatchTarget.OU if schedule.kind is ScheduleKind.SCAN_OU else BatchTarget.DOMAIN
-        )
         try:
-            await create_batch(
-                db,
-                actor_id=schedule.created_by,
-                target_type=target_type,
-                target_value=schedule.target,
-            )
+            if schedule.kind is ScheduleKind.DIGEST:
+                await enqueue_digest_notifications(db, now=tick)
+            else:
+                target_type = (
+                    BatchTarget.OU if schedule.kind is ScheduleKind.SCAN_OU else BatchTarget.DOMAIN
+                )
+                await create_batch(
+                    db,
+                    actor_id=schedule.created_by,
+                    target_type=target_type,
+                    target_value=schedule.target,
+                )
         except ValueError as exc:
             schedule.last_error = str(exc)[:255]
         else:

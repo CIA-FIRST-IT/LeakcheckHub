@@ -52,6 +52,10 @@ _SETTING_LABELS = {
     SettingKey.GOOGLE_WORKSPACE_SERVICE_ACCOUNT_JSON: "Service-account JSON",
     SettingKey.GOOGLE_WORKSPACE_DELEGATED_ADMIN: "Delegated Workspace admin email",
     SettingKey.GOOGLE_WORKSPACE_DOMAINS: "Allowed Workspace domains (comma-separated)",
+    SettingKey.SMTP_SECURITY: "SMTP transport security",
+    SettingKey.PUBLIC_BASE_URL: "Public portal base URL (HTTPS)",
+    SettingKey.NOTIFY_DRY_RUN: "Notification dry-run",
+    SettingKey.NOTIFY_COOLDOWN_SECONDS: "Per-user notification cooldown (seconds)",
 }
 
 router = APIRouter(prefix="/admin", dependencies=[Depends(_ADMIN_GUARD)], include_in_schema=False)
@@ -86,9 +90,13 @@ class SettingsUpdate(BaseModel):
     smtp_username: str | None = Field(default=None, max_length=512)
     smtp_password: str | None = Field(default=None, max_length=2048)
     smtp_from: str | None = Field(default=None, max_length=320)
+    smtp_security: str | None = Field(default=None, pattern="^(starttls|tls)$")
+    public_base_url: str | None = Field(default=None, max_length=2048)
+    notify_dry_run: bool | None = None
+    notify_cooldown_seconds: Annotated[int | None, Field(default=None, ge=0, le=30 * 24 * 60 * 60)]
     soc_email: str | None = Field(default=None, max_length=320)
 
-    @field_validator("google_redirect_uri", "wazuh_url", "dfir_iris_url")
+    @field_validator("google_redirect_uri", "wazuh_url", "dfir_iris_url", "public_base_url")
     @classmethod
     def validate_url(cls, value: str | None) -> str | None:
         if value is None or value == "":
@@ -397,6 +405,18 @@ def _setting_input(key: SettingKey, *, configured: bool) -> str:
     placeholder = "configured — leave blank to keep" if secret and configured else ""
     escaped_key = html.escape(key.value)
     label = html.escape(_SETTING_LABELS.get(key, key.value.replace("_", " ").title()))
+    if key is SettingKey.NOTIFY_DRY_RUN:
+        return (
+            f'<label>{label} <select name="{escaped_key}">'
+            '<option value="true" selected>Enabled (safe default)</option>'
+            '<option value="false">Disabled — send mail</option></select></label><br>'
+        )
+    if key is SettingKey.SMTP_SECURITY:
+        return (
+            f'<label>{label} <select name="{escaped_key}">'
+            '<option value="starttls">STARTTLS</option>'
+            '<option value="tls">Implicit TLS</option></select></label><br>'
+        )
     if key is SettingKey.GOOGLE_WORKSPACE_SERVICE_ACCOUNT_JSON:
         return (
             f'<label>{label}<br><textarea name="{escaped_key}" rows="8" cols="72" '
