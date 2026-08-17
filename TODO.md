@@ -154,20 +154,17 @@ _Completed 2026-08-17:_ M7-01 through M7-04 are committed and green on PR #5.
 
 ## M8 — Notifications
 
-- [ ] `M8-01` SMTP sender with STARTTLS/TLS; MailHog wired for dev
-- [ ] `M8-02` Templates — **no credentials or masks in the body**, portal link only
-- [ ] `M8-03` Targeting by user / OU / domain / selection; preview → explicit confirm
-- [ ] `M8-04` Per-user cooldown + `dedupe_key` unique index; `NOTIFY_DRY_RUN` defaults on
-- [ ] `M8-05` Automatic notification on new unremediated findings; scheduled digest job
-- [ ] `M8-06` Tests: dry-run sends nothing, double-submit sends once, cooldown honoured,
+- [x] `M8-01` SMTP sender with STARTTLS/TLS; MailHog wired for dev
+- [x] `M8-02` Templates — **no credentials or masks in the body**, portal link only
+- [x] `M8-03` Targeting by user / OU / domain / selection; preview → explicit confirm
+- [x] `M8-04` Per-user cooldown + `dedupe_key` unique index; `NOTIFY_DRY_RUN` defaults on
+- [x] `M8-05` Automatic notification on new unremediated findings; scheduled digest job
+- [x] `M8-06` Tests: dry-run sends nothing, double-submit sends once, cooldown honoured,
       **no password material in any rendered body**
 
 **Done when:** SOC can mail all users with unremediated leaks, by any of the four targeting modes.
 
-_Local status 2026-08-17:_ M8-01 through M8-06 are implemented with TLS-only SMTP, a development
-MailHog service, portal-link-only templates, explicit preview/confirm targeting, dry-run-on defaults,
-database dedupe, cooldown, automatic new-finding queueing, scheduled digests, and offline sender tests.
-Items remain unchecked until committed and CI is green.
+_Completed 2026-08-17:_ M8-01 through M8-06 are committed and green on PR #6.
 
 ## M9 — Watchlist & SIEM alerts
 
