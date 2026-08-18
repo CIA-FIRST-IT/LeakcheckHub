@@ -47,6 +47,10 @@ class SettingKey(StrEnum):
     SMTP_USERNAME = "smtp_username"
     SMTP_PASSWORD = "smtp_password"  # noqa: S105  # nosec B105
     SMTP_FROM = "smtp_from"
+    SMTP_SECURITY = "smtp_security"
+    PUBLIC_BASE_URL = "public_base_url"
+    NOTIFY_DRY_RUN = "notify_dry_run"
+    NOTIFY_COOLDOWN_SECONDS = "notify_cooldown_seconds"
     SOC_EMAIL = "soc_email"
 
 

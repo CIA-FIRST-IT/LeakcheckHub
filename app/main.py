@@ -22,8 +22,10 @@ from app.routers.auth import router as auth_router
 from app.routers.batches import router as batches_router
 from app.routers.findings import router as findings_router
 from app.routers.health import router as health_router
+from app.routers.notifications import router as notifications_router
 from app.routers.schedules import router as schedules_router
 from app.routers.user import router as user_router
+from app.routers.watchlist import router as watchlist_router
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -60,6 +62,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(analyst_router)
     app.include_router(batches_router)
     app.include_router(schedules_router)
+    app.include_router(notifications_router)
+    app.include_router(watchlist_router)
     app.include_router(findings_router)
     app.include_router(user_router)
     app.include_router(health_router)
