@@ -403,7 +403,7 @@ def page(
             '{"includeIndicatorStyles":false,"allowEval":false,"allowScriptTags":false}',
             "'>",
             f"<title>{_h(title)} · LeakCheck Hub</title>",
-            '<link rel="stylesheet" href="/static/analyst.css?v=6">',
+            '<link rel="stylesheet" href="/static/analyst.css?v=7">',
             styles,
             '<script src="/static/htmx-2.0.10.min.js" defer></script>',
             '<script src="/static/analyst.js?v=6" defer></script>',

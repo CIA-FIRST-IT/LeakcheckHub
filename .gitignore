@@ -25,6 +25,7 @@ postgres-data/
 /API-NOTES.md
 /TODO.md
 /plan.md
+/THREAT-MODEL.md
 /notes/
 *.local.md
 

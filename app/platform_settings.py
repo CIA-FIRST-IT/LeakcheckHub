@@ -52,6 +52,8 @@ class SettingKey(StrEnum):
     NOTIFY_DRY_RUN = "notify_dry_run"
     NOTIFY_COOLDOWN_SECONDS = "notify_cooldown_seconds"
     SOC_EMAIL = "soc_email"
+    RETENTION_MODE = "retention_mode"
+    RETENTION_DAYS = "retention_days"
 
 
 SECRET_KEYS = frozenset(

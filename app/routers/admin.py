@@ -6,12 +6,12 @@ import html
 import json
 import re
 import uuid
-from typing import Annotated, cast
+from typing import Annotated, Self, cast
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
-from pydantic import BaseModel, Field, ValidationError, field_validator
+from pydantic import BaseModel, Field, ValidationError, field_validator, model_validator
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -35,6 +35,7 @@ from app.platform_settings import (
     PlatformSettingsStore,
     SettingKey,
 )
+from app.retention import load_policy
 
 _ADMIN_GUARD = require_role(UserRole.SUPER_ADMIN)
 _MAX_BODY_BYTES = 32 * 1024
@@ -98,6 +99,14 @@ class SettingsUpdate(BaseModel):
     notify_dry_run: bool | None = None
     notify_cooldown_seconds: Annotated[int | None, Field(default=None, ge=0, le=30 * 24 * 60 * 60)]
     soc_email: str | None = Field(default=None, max_length=320)
+    retention_mode: str | None = Field(default=None, pattern="^(indefinite|none|days)$")
+    retention_days: Annotated[int | None, Field(default=None, ge=1, le=3650)]
+
+    @model_validator(mode="after")
+    def retention_days_required_for_a_day_based_policy(self) -> Self:
+        if self.retention_mode == "days" and self.retention_days is None:
+            raise ValueError("retention_days is required when retention_mode is 'days'")
+        return self
 
     @field_validator("google_redirect_uri", "wazuh_url", "dfir_iris_url", "public_base_url")
     @classmethod
@@ -217,6 +226,18 @@ def _role_options(selected: UserRole) -> str:
     )
 
 
+def _retention_options(selected: str) -> str:
+    labels = {
+        "indefinite": "Keep indefinitely",
+        "none": "Delete on remediation",
+        "days": "Delete after N days",
+    }
+    return "".join(
+        f'<option value="{value}"{" selected" if value == selected else ""}>{label}</option>'
+        for value, label in labels.items()
+    )
+
+
 def _quota_panel(row: object) -> str:
     """Show the most recent vendor quota observation, which lags one request by design."""
 
@@ -288,6 +309,7 @@ async def settings_page(
     configured = await store.configured_state(db)
     listed = await db.execute(select(User).order_by(User.email))
     users = list(listed.scalars().all())
+    retention = await load_policy(db, store)
     quota_row = await db.execute(
         select(Scan.quota, Scan.started_at)
         .where(Scan.quota.is_not(None))
@@ -346,6 +368,20 @@ async def settings_page(
             '<button type="button" data-test-alert="dfir_iris">Queue DFIR-IRIS test</button>',
             "</section>",
             _workspace_help_dialog(),
+            '<section class="panel"><h2>Data retention</h2>',
+            "<p>",
+            html.escape(retention.describe()),
+            "</p>",
+            '<label>Policy <select name="retention_mode" form="settings-form">',
+            _retention_options(retention.mode),
+            "</select></label>",
+            '<label>Days <input type="number" name="retention_days" min="1" max="3650" ',
+            'form="settings-form" value="',
+            html.escape(str(retention.days) if retention.days else ""),
+            '"></label>',
+            "<p>Only remediated findings are deleted; an open exposure is never removed ",
+            "automatically. Deletion is permanent and is not written to the event trail.</p>",
+            "</section>",
             '<section class="panel"><h2>LeakCheck quota</h2>',
             _quota_panel(latest_quota),
             "</section>",

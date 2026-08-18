@@ -41,6 +41,7 @@ from app.auth.session import SESSION_COOKIE_NAME, SessionManager
 from app.db import get_db_session
 from app.models import AdminCredential, User, UserRole
 from app.platform_settings import PlatformSettingsStore, SettingKey
+from app.totp_qr import provisioning_qr_svg
 
 router = APIRouter(include_in_schema=False)
 _MAX_LOCAL_LOGIN_BODY_BYTES = 4096
@@ -366,11 +367,13 @@ async def mfa_setup_page(
     content = "".join(
         (
             '<section class="hero compact"><p class="eyebrow">Account security</p>',
-            "<h1>Set up MFA</h1><p>Add this account to your authenticator, then enter a generated ",
+            "<h1>Set up MFA</h1><p>Scan this code with your authenticator, then enter a generated ",
             'code to enable MFA.</p></section><section class="panel profile-panel">',
+            # Inlined, never a URL: an enrollment secret must not be cacheable or land in a log.
+            f'<figure class="totp-qr">{provisioning_qr_svg(uri)}</figure>',
             f'<p><a class="button secondary" href="{html.escape(uri, quote=True)}">',
             "Open in authenticator</a></p>",
-            f"<p>Manual setup key: <code>{html.escape(secret)}</code></p>",
+            f"<p>Can't scan? Manual setup key: <code>{html.escape(secret)}</code></p>",
             '<form id="mfa-form"><label>Authenticator code <input name="totp_code" ',
             'inputmode="numeric" autocomplete="one-time-code" required></label>',
             '<button type="submit">Enable MFA</button></form><output id="mfa-result"></output>',

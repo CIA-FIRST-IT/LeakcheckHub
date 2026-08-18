@@ -132,3 +132,18 @@ footer { padding: 2rem; color: var(--muted); text-align: center; border-top: 1px
   .column-picker fieldset { position: static; grid-template-columns: 1fr; width: auto; }
   .pagination { justify-content: space-between; }
 }
+
+
+.totp-qr {
+  margin: 0 0 1rem;
+  padding: 0.75rem;
+  width: max-content;
+  background: #ffffff;
+  border-radius: 8px;
+  /* The code must stay high-contrast regardless of the surrounding theme. */
+  border: 1px solid rgba(0, 0, 0, 0.15);
+}
+
+.totp-qr svg {
+  display: block;
+}

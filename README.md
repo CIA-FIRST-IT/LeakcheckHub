@@ -89,8 +89,6 @@ quality checks. No test may contact the live LeakCheck API.
   and the pre-production checklist.
 - [RUNBOOK.md](RUNBOOK.md) — backup and restore, root data-key rotation, offboarding, and
   troubleshooting.
-- [THREAT-MODEL.md](THREAT-MODEL.md) — assets, trust boundaries, controls, and the accepted
-  residual risks.
 
 ## Portainer deployment
 

@@ -15,6 +15,7 @@ from app.db import get_async_session_factory
 from app.models import Scan, ScanStatus, ScanTrigger
 from app.notifications import deliver_next
 from app.platform_settings import PlatformSettingsStore, SettingKey
+from app.retention import purge_expired_findings
 from app.scan_runtime import client_from_platform_values, execute_scan
 from app.scheduling import dispatch_due_schedules
 
@@ -44,6 +45,10 @@ async def run() -> None:
                 await dispatch_due_schedules(db)
             async with sessions() as db:
                 await deliver_next(db, store)
+            async with sessions() as db:
+                # A no-op unless a super-admin has chosen a retention policy.
+                await purge_expired_findings(db, store)
+                await db.commit()
             async with sessions() as db:
                 work = await claim_next(db, worker_id)
             if work is None:
