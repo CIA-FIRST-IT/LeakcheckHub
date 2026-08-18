@@ -120,7 +120,9 @@ docker compose exec web python -m app.create_superadmin --email admin@example.or
   --display-name "SOC Admin"
 ```
 
-It prompts twice for a 15+ character password and prints the TOTP provisioning URI exactly once.
+It prompts twice for a 15+ character password and creates a password-only account. Sign in with it,
+then enroll MFA from **Account security**, which shows a QR code and a manual key. TOTP is required
+at every subsequent sign-in for that account.
 
 **Offboarding.** In `/admin/settings`, clear the user's Active checkbox and press Sign out to revoke
 every live session. Deactivation alone does not end sessions already issued.

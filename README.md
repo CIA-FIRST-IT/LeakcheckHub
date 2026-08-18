@@ -44,17 +44,18 @@ saved, the app boots normally and Google sign-in returns HTTP 503.
 
 ## Super-admin bootstrap
 
-Super-admins are local accounts only: their email/password login always also requires TOTP. They are
-never self-registered. After the stack has migrated, run the following from an operator terminal:
+Super-admins hold local password credentials and are never self-registered. TOTP is enrolled from
+inside the portal after the first sign-in, and is required at every sign-in once enrolled. After the stack has migrated, run the following from an operator terminal:
 
 ```sh
 docker compose exec web python -m app.create_superadmin --email admin@example.test --display-name "SOC Admin"
 ```
 
-The command prompts twice for a 15+ character password and prints one TOTP provisioning URI exactly
-once for an authenticator app. It deliberately has no password command-line option, so passwords do
-not enter shell history or process arguments. Local login is available at `POST /auth/local/login` and
-requires the account email, password, and a current six-digit TOTP code over HTTPS.
+The command prompts twice for a 15+ character password and creates a password-only account. It
+deliberately has no password command-line option, so passwords do not enter shell history or
+process arguments. Sign in, then open **Account security** to scan the enrollment QR code and
+enable MFA. Local login is available at `POST /auth/local/login`; it requires a six-digit TOTP code
+in addition to the email and password once the account has completed enrollment.
 
 Before any state-changing browser request, retrieve `GET /auth/csrf`, read the host-only
 `__Host-leakcheck-csrf` cookie from same-origin code, and return its value in the `X-CSRF-Token`
