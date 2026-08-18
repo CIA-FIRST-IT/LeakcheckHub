@@ -77,3 +77,10 @@ pytest
 
 `requirements.txt` is the production lock. `requirements-dev.txt` adds tools used exclusively by
 quality checks. No test may contact the live LeakCheck API.
+
+## Portainer deployment
+
+Use the Git-backed production stack in `compose.portainer.yaml`. GitHub publishes the application
+image to GHCR after the `main` branch passes CI, and Portainer re-pulls that image on every stack
+redeployment. See [PORTAINER.md](PORTAINER.md) for the exact setup, required bootstrap variables,
+persistent-data behavior, and optional automatic redeployment webhook.
