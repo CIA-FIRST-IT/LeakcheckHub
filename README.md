@@ -20,6 +20,11 @@ The `migrate` service is the only development service that connects as the Postg
 superuser. Its initial Alembic migration creates the separate, non-superuser migration and runtime
 roles. Web and worker processes use the runtime role only.
 
+The development stack in `compose.yaml` keeps `migrate` and `worker` as separate services. The
+Portainer stack in `compose.portainer.yaml` is deliberately smaller: it runs only `init`, `postgres`,
+and `web`, with schema upgrades and the batch worker folded into the `web` container. Privileged
+migration credentials are removed from the process environment once the schema is current.
+
 ## Platform configuration
 
 Fresh installations intentionally contain no operational integration configuration. After creating

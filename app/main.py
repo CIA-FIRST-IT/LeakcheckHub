@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
@@ -27,6 +29,25 @@ from app.routers.schedules import router as schedules_router
 from app.routers.user import router as user_router
 from app.routers.watchlist import router as watchlist_router
 
+logger = logging.getLogger(__name__)
+
+_WORKER_RESTART_DELAY_SECONDS = 5.0
+
+
+async def _supervise_worker() -> None:
+    """Keep the batch worker running without letting its failures reach the HTTP listener."""
+
+    from app.worker import run as run_worker
+
+    while True:
+        try:
+            await run_worker()
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.exception("batch worker crashed; restarting")
+            await asyncio.sleep(_WORKER_RESTART_DELAY_SECONDS)
+
 
 def create_app(settings: Settings | None = None) -> FastAPI:
     """Build the web application without creating database connections at import time."""
@@ -36,7 +57,18 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         # Settings have already been fully validated before a listener is exposed.
-        yield
+        if not resolved_settings.run_inprocess_worker:
+            yield
+            return
+        worker = asyncio.create_task(_supervise_worker())
+        try:
+            yield
+        finally:
+            worker.cancel()
+            try:
+                await worker
+            except asyncio.CancelledError:
+                pass
 
     app = FastAPI(
         title="LeakCheck SOC Portal",
