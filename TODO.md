@@ -129,49 +129,60 @@ _Completed 2026-08-17:_ M5-01 through M5-05 are committed and green on PR #3.
 
 ## M6 — Workspace sync & batch scans
 
-- [ ] `M6-01` Service-account client, domain-wide delegation, read-only Directory scopes
-- [ ] `M6-02` `list_org_units()` / `list_users()`; additive sync marking departed users inactive
-- [ ] `M6-03` `scan_queue` + worker drain via `SELECT ... FOR UPDATE SKIP LOCKED`
-- [ ] `M6-04` Batch builder: by OU / by domain / by selection; live HTMX progress view.
+- [x] `M6-01` Service-account client, domain-wide delegation, read-only Directory scopes
+- [x] `M6-02` `list_org_units()` / `list_users()`; additive sync marking departed users inactive
+- [x] `M6-03` `scan_queue` + worker drain via `SELECT ... FOR UPDATE SKIP LOCKED`
+- [x] `M6-04` Batch builder: by OU / by domain / by selection; live HTMX progress view.
       At 3 RPS a 5,000-user OU takes ~30–90 min, so batches are strictly background jobs with progress
       and resumability — never request-scoped
-- [ ] `M6-05` Tests: sync idempotency, queue concurrency, rate-limit adherence under batch load
+- [x] `M6-05` Tests: sync idempotency, queue concurrency, rate-limit adherence under batch load
 
 **Done when:** "scan every user in OU X" completes without exceeding the RPS budget.
 
+_Completed 2026-08-17:_ M6-01 through M6-05 are committed and green on PR #4.
+
 ## M7 — Scheduling
 
-- [ ] `M7-01` `schedules` model + APScheduler on the Postgres job store
-- [ ] `M7-02` Postgres advisory-lock single-leader guarantee
-- [ ] `M7-03` Schedule CRUD UI with timezone + next-run preview
-- [ ] `M7-04` Tests: no double-execution with two workers running; misfire handling
+- [x] `M7-01` `schedules` model + APScheduler on the Postgres job store
+- [x] `M7-02` Postgres advisory-lock single-leader guarantee
+- [x] `M7-03` Schedule CRUD UI with timezone + next-run preview
+- [x] `M7-04` Tests: no double-execution with two workers running; misfire handling
 
 **Done when:** a nightly OU scan and a weekly domain scan run unattended.
 
+_Completed 2026-08-17:_ M7-01 through M7-04 are committed and green on PR #5.
+
 ## M8 — Notifications
 
-- [ ] `M8-01` SMTP sender with STARTTLS/TLS; MailHog wired for dev
-- [ ] `M8-02` Templates — **no credentials or masks in the body**, portal link only
-- [ ] `M8-03` Targeting by user / OU / domain / selection; preview → explicit confirm
-- [ ] `M8-04` Per-user cooldown + `dedupe_key` unique index; `NOTIFY_DRY_RUN` defaults on
-- [ ] `M8-05` Automatic notification on new unremediated findings; scheduled digest job
-- [ ] `M8-06` Tests: dry-run sends nothing, double-submit sends once, cooldown honoured,
+- [x] `M8-01` SMTP sender with STARTTLS/TLS; MailHog wired for dev
+- [x] `M8-02` Templates — **no credentials or masks in the body**, portal link only
+- [x] `M8-03` Targeting by user / OU / domain / selection; preview → explicit confirm
+- [x] `M8-04` Per-user cooldown + `dedupe_key` unique index; `NOTIFY_DRY_RUN` defaults on
+- [x] `M8-05` Automatic notification on new unremediated findings; scheduled digest job
+- [x] `M8-06` Tests: dry-run sends nothing, double-submit sends once, cooldown honoured,
       **no password material in any rendered body**
 
 **Done when:** SOC can mail all users with unremediated leaks, by any of the four targeting modes.
+
+_Completed 2026-08-17:_ M8-01 through M8-06 are committed and green on PR #6.
 
 ## M9 — Watchlist & SIEM alerts
 
 - [ ] `M9-01` **Verify the live Wazuh and DFIR-IRIS API contracts against the real instances first** —
       do not write the mapping from documentation alone
-- [ ] `M9-02` `AlertSink` interface + `alert_outbox` with retry and dead-lettering
+- [x] `M9-02` `AlertSink` interface + `alert_outbox` with retry and dead-lettering
 - [ ] `M9-03` Wazuh sink: API `/events` with JWT auth from `/security/user/authenticate`; syslog fallback
 - [ ] `M9-04` DFIR-IRIS sink: `/alerts/add`, finding → alert mapping including the email as an IOC
-- [ ] `M9-05` `watchlist` model + UI with per-entry channel toggles
+- [x] `M9-05` `watchlist` model + UI with per-entry channel toggles
 - [ ] `M9-06` Fan-out on new / re-leaked findings for watchlisted subjects
 - [ ] `M9-07` "Send test alert" admin action; tests with mocked sinks incl. total-outage path
 
 **Done when:** a new leak on a watchlisted VIP mails SOC + user and lands in both SIEMs.
+
+_Foundation status 2026-08-17:_ M9-02 and M9-05 are committed and green on PR #7. Contract-neutral
+portions of M9-06 and M9-07 are also present: safe new/re-leak envelopes and queued test alerts with
+total-outage tests. No sink adapter is registered and no remote payload mapping is written until M9-01
+is completed against the real Wazuh and DFIR-IRIS instances.
 
 ## M10 — Hardening & operations
 

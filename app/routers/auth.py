@@ -3,14 +3,18 @@
 from __future__ import annotations
 
 import hmac
+import html
 import json
 from datetime import UTC, datetime
 from typing import cast
 
 from fastapi import APIRouter, Depends, Request, Response
-from fastapi.responses import PlainTextResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, PlainTextResponse, RedirectResponse
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import undefer
 
+from app.analyst_ui import page
 from app.audit import audit_event
 from app.auth.authorization import get_session_manager_for_request, require_role
 from app.auth.csrf import CSRFProtector
@@ -21,10 +25,21 @@ from app.auth.google import (
     GoogleOIDCError,
     provision_google_user,
 )
-from app.auth.local import LocalAuthenticationResult, LocalAuthenticator
+from app.auth.local import (
+    LocalAuthenticationError,
+    LocalAuthenticationResult,
+    LocalAuthenticator,
+    build_totp_provisioning_uri,
+    decrypt_totp_secret,
+    encrypt_totp_secret,
+    generate_totp_secret,
+    hash_password,
+    verify_password,
+    verify_totp,
+)
 from app.auth.session import SESSION_COOKIE_NAME, SessionManager
 from app.db import get_db_session
-from app.models import User, UserRole
+from app.models import AdminCredential, User, UserRole
 from app.platform_settings import PlatformSettingsStore, SettingKey
 
 router = APIRouter(include_in_schema=False)
@@ -83,6 +98,50 @@ async def get_csrf_protector(request: Request) -> CSRFProtector:
     """Read the CSRF issuer configured with the matching session-secret-derived key."""
 
     return cast(CSRFProtector, request.app.state.csrf_protector)
+
+
+@router.get("/", response_model=None)
+async def landing_page(
+    request: Request,
+    db: AsyncSession = Depends(get_db_session),  # noqa: B008
+    session_manager: SessionManager = Depends(get_session_manager_for_request),  # noqa: B008
+) -> HTMLResponse | RedirectResponse:
+    """Show the login page or send an existing session to its role-specific home."""
+
+    verified = await session_manager.verify(db, token=request.cookies.get(SESSION_COOKIE_NAME))
+    if verified is not None:
+        destinations = {
+            UserRole.SUPER_ADMIN: "/admin/settings",
+            UserRole.ANALYST: "/analyst",
+            UserRole.USER: "/portal",
+        }
+        return RedirectResponse(destinations[verified.user.role], status_code=303)
+    return HTMLResponse(
+        """<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width"><title>Sign in · LeakCheck Hub</title>
+<link rel="stylesheet" href="/static/auth.css?v=2"></head>
+<body class="auth-page"><main class="auth-shell"><section class="brand-panel">
+<div class="brand-mark" aria-hidden="true">LC</div><p class="eyebrow">CIA FIRST IT</p>
+<h1>Find exposed credentials before attackers do.</h1>
+<p class="brand-copy">A focused security workspace for breach monitoring, investigation,
+and remediation.</p><div class="signal" aria-hidden="true"><span></span><span></span><span></span>
+</div></section><section class="login-panel"><div class="login-card">
+<p class="eyebrow">SECURE ACCESS</p><h2>Welcome back</h2>
+<p class="subtitle">Sign in to continue to LeakCheck Hub.</p>
+<form id="local-login" class="auth-form"><label>Email address
+<input name="username" type="email" autocomplete="username" placeholder="admin@example.com"
+required>
+</label><label>Password<input name="password" type="password" autocomplete="current-password"
+placeholder="Enter your password" required></label>
+<label>Authenticator code <span class="optional">Optional until enabled</span>
+<input name="totp_code" inputmode="numeric" autocomplete="one-time-code" maxlength="6"
+placeholder="000000"></label><button type="submit">Sign in</button></form>
+<output id="login-result" class="form-status"></output><div class="divider"><span>or</span></div>
+<a class="google-button" href="/auth/google/login">Continue with Google</a>
+<p class="security-note">Protected by encrypted sessions and role-based access.</p>
+</div></section></main><script src="/static/login.js?v=2" defer></script></body></html>""",
+        headers={"Cache-Control": "no-store"},
+    )
 
 
 @router.get("/auth/csrf", response_model=None)
@@ -260,6 +319,229 @@ async def finish_local_login(
     return response
 
 
+@router.get("/account/mfa", response_model=None)
+async def mfa_setup_page(
+    request: Request,
+    current_user: User = Depends(_ALL_ROLES_GUARD),  # noqa: B008
+    db: AsyncSession = Depends(get_db_session),  # noqa: B008
+) -> HTMLResponse:
+    """Create or resume a pending TOTP enrollment for a local administrator."""
+
+    result = await db.execute(
+        select(AdminCredential)
+        .options(undefer(AdminCredential.totp_secret_enc))
+        .where(AdminCredential.user_id == current_user.id)
+        .with_for_update()
+    )
+    credential = result.scalar_one_or_none()
+    if credential is None:
+        return HTMLResponse("MFA is managed by your sign-in provider.", status_code=400)
+    if credential.totp_enabled_at is not None:
+        return HTMLResponse(
+            page(
+                "Profile · MFA",
+                '<section class="hero compact"><p class="eyebrow">Account security</p>'
+                "<h1>MFA is enabled</h1><p>Your authenticator code is required at sign-in.</p>"
+                '<a class="button secondary" href="/account/profile">Back to Profile</a></section>',
+                user=current_user,
+            ),
+            headers={"Cache-Control": "no-store"},
+        )
+    try:
+        if credential.totp_secret_enc is None:
+            secret = generate_totp_secret()
+            credential.totp_secret_enc = encrypt_totp_secret(
+                request.app.state.settings, user_id=current_user.id, secret=secret
+            )
+            await db.flush()
+        else:
+            secret = decrypt_totp_secret(
+                request.app.state.settings,
+                user_id=current_user.id,
+                encrypted=credential.totp_secret_enc,
+            )
+    except LocalAuthenticationError:
+        return HTMLResponse("MFA setup could not be initialized.", status_code=500)
+    uri = build_totp_provisioning_uri(email=current_user.email, secret=secret)
+    content = "".join(
+        (
+            '<section class="hero compact"><p class="eyebrow">Account security</p>',
+            "<h1>Set up MFA</h1><p>Add this account to your authenticator, then enter a generated ",
+            'code to enable MFA.</p></section><section class="panel profile-panel">',
+            f'<p><a class="button secondary" href="{html.escape(uri, quote=True)}">',
+            "Open in authenticator</a></p>",
+            f"<p>Manual setup key: <code>{html.escape(secret)}</code></p>",
+            '<form id="mfa-form"><label>Authenticator code <input name="totp_code" ',
+            'inputmode="numeric" autocomplete="one-time-code" required></label>',
+            '<button type="submit">Enable MFA</button></form><output id="mfa-result"></output>',
+            "</section>",
+        )
+    )
+    return HTMLResponse(
+        page(
+            "Profile · MFA",
+            content,
+            user=current_user,
+            extra_scripts=("/static/mfa-setup.js?v=3",),
+        ),
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@router.post("/account/mfa/enable", response_model=None)
+async def enable_mfa(
+    request: Request,
+    current_user: User = Depends(_ALL_ROLES_GUARD),  # noqa: B008
+    db: AsyncSession = Depends(get_db_session),  # noqa: B008
+) -> JSONResponse:
+    """Enable a pending seed only after the signed-in user proves possession."""
+
+    code = await _read_mfa_code(request)
+    result = await db.execute(
+        select(AdminCredential)
+        .options(undefer(AdminCredential.totp_secret_enc))
+        .where(AdminCredential.user_id == current_user.id)
+        .with_for_update()
+    )
+    credential = result.scalar_one_or_none()
+    if credential is None or credential.totp_secret_enc is None or code is None:
+        return JSONResponse({"detail": "MFA setup is not ready."}, status_code=400)
+    try:
+        secret = decrypt_totp_secret(
+            request.app.state.settings,
+            user_id=current_user.id,
+            encrypted=credential.totp_secret_enc,
+        )
+    except LocalAuthenticationError:
+        return JSONResponse({"detail": "MFA setup is not ready."}, status_code=400)
+    if not verify_totp(secret, code):
+        return JSONResponse({"detail": "The authenticator code was not accepted."}, status_code=422)
+    credential.totp_enabled_at = datetime.now(UTC)
+    await audit_event(
+        db,
+        request,
+        request.app.state.settings,
+        action="auth.mfa_enabled",
+        actor_id=current_user.id,
+        target_type="user",
+        target_id=str(current_user.id),
+    )
+    await db.flush()
+    return JSONResponse({"enabled": True})
+
+
+@router.get("/account/profile", response_model=None)
+async def profile_page(
+    current_user: User = Depends(_ALL_ROLES_GUARD),  # noqa: B008
+    db: AsyncSession = Depends(get_db_session),  # noqa: B008
+) -> HTMLResponse:
+    """Render local administrator password and MFA controls."""
+
+    credential = (
+        await db.execute(select(AdminCredential).where(AdminCredential.user_id == current_user.id))
+    ).scalar_one_or_none()
+    if credential is None or current_user.role is not UserRole.SUPER_ADMIN:
+        return HTMLResponse(
+            "Profile security is managed by your sign-in provider.", status_code=400
+        )
+    mfa_status = "Enabled" if credential.totp_enabled_at is not None else "Not enabled"
+    mfa_action = (
+        '<span class="badge success">Enabled</span>'
+        if credential.totp_enabled_at is not None
+        else '<a class="button" href="/account/mfa">Enable MFA</a>'
+    )
+    content = "".join(
+        (
+            '<section class="hero compact"><p class="eyebrow">Administrator account</p>',
+            f"<h1>{html.escape(current_user.email)}</h1>",
+            "<p>Manage the security controls for this local administrator.</p></section>",
+            '<section class="profile-grid"><article class="panel profile-panel"><h2>MFA</h2>',
+            f"<p>Status: {mfa_status}</p>{mfa_action}</article>",
+            '<article class="panel profile-panel"><h2>Change password</h2>',
+            '<form id="password-form"><label>Current password',
+            '<input type="password" name="current_password" autocomplete="current-password" ',
+            "required>",
+            '</label><label>New password<input type="password" name="new_password" ',
+            'autocomplete="new-password" minlength="15" required></label>',
+            '<label>Confirm new password<input type="password" name="confirmation" ',
+            'autocomplete="new-password" minlength="15" required></label>',
+            '<button type="submit">Change password</button></form>',
+            '<output id="profile-result" class="form-error"></output></article></section>',
+        )
+    )
+    return HTMLResponse(
+        page(
+            "Profile",
+            content,
+            user=current_user,
+            extra_scripts=("/static/profile.js?v=3",),
+        ),
+        headers={"Cache-Control": "no-store"},
+    )
+
+
+@router.post("/account/profile/password", response_model=None)
+async def change_password(
+    request: Request,
+    current_user: User = Depends(_ALL_ROLES_GUARD),  # noqa: B008
+    db: AsyncSession = Depends(get_db_session),  # noqa: B008
+) -> JSONResponse:
+    """Change a local administrator password after verifying the current password."""
+
+    body = await request.body()
+    if len(body) > _MAX_LOCAL_LOGIN_BODY_BYTES:
+        return JSONResponse({"detail": "Invalid password change request."}, status_code=400)
+    try:
+        payload = json.loads(body)
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        payload = None
+    required = {"current_password", "new_password", "confirmation"}
+    if not isinstance(payload, dict) or set(payload) != required:
+        return JSONResponse({"detail": "Invalid password change request."}, status_code=400)
+    current_password = payload["current_password"]
+    new_password = payload["new_password"]
+    confirmation = payload["confirmation"]
+    if not all(isinstance(value, str) for value in (current_password, new_password, confirmation)):
+        return JSONResponse({"detail": "Invalid password change request."}, status_code=400)
+    try:
+        if any(
+            len(value.encode("utf-8")) > 1024
+            for value in (current_password, new_password, confirmation)
+        ):
+            raise ValueError
+    except (UnicodeEncodeError, ValueError):
+        return JSONResponse({"detail": "Invalid password change request."}, status_code=400)
+    result = await db.execute(
+        select(AdminCredential)
+        .options(undefer(AdminCredential.password_hash))
+        .where(AdminCredential.user_id == current_user.id)
+        .with_for_update()
+    )
+    credential = result.scalar_one_or_none()
+    if credential is None or not verify_password(credential.password_hash, current_password):
+        return JSONResponse({"detail": "Current password was not accepted."}, status_code=422)
+    if new_password != confirmation:
+        return JSONResponse({"detail": "New passwords do not match."}, status_code=422)
+    try:
+        credential.password_hash = hash_password(new_password)
+    except LocalAuthenticationError:
+        return JSONResponse(
+            {"detail": "New password must contain at least 15 valid characters."},
+            status_code=422,
+        )
+    await audit_event(
+        db,
+        request,
+        request.app.state.settings,
+        action="auth.password_changed",
+        actor_id=current_user.id,
+        target_type="user",
+        target_id=str(current_user.id),
+    )
+    await db.flush()
+    return JSONResponse({"changed": True})
+
+
 @router.post("/auth/logout", response_model=None)
 async def logout(
     request: Request,
@@ -294,7 +576,7 @@ def _authentication_failed(*, status_code: int = 400) -> PlainTextResponse:
     return response
 
 
-async def _read_local_login_credentials(request: Request) -> tuple[str, str, str] | None:
+async def _read_local_login_credentials(request: Request) -> tuple[str, str, str | None] | None:
     """Read a tiny JSON credential body without exposing Pydantic validation echoes to a caller."""
 
     content_length = request.headers.get("content-length")
@@ -311,11 +593,20 @@ async def _read_local_login_credentials(request: Request) -> tuple[str, str, str
         payload = json.loads(body)
     except (UnicodeDecodeError, json.JSONDecodeError):
         return None
-    if not isinstance(payload, dict) or set(payload) != {"username", "password", "totp_code"}:
+    if (
+        not isinstance(payload, dict)
+        or not {"username", "password"} <= set(payload)
+        or set(payload)
+        - {
+            "username",
+            "password",
+            "totp_code",
+        }
+    ):
         return None
     username = payload["username"]
     password = payload["password"]
-    totp_code = payload["totp_code"]
+    totp_code = payload.get("totp_code") or None
     try:
         password_length = len(password.encode("utf-8")) if isinstance(password, str) else 0
     except UnicodeEncodeError:
@@ -323,13 +614,24 @@ async def _read_local_login_credentials(request: Request) -> tuple[str, str, str
     if (
         not isinstance(username, str)
         or not isinstance(password, str)
-        or not isinstance(totp_code, str)
+        or (totp_code is not None and not isinstance(totp_code, str))
         or len(username) > 255
         or password_length > 1024
-        or len(totp_code) > 16
+        or (totp_code is not None and len(totp_code) > 16)
     ):
         return None
     return username, password, totp_code
+
+
+async def _read_mfa_code(request: Request) -> str | None:
+    try:
+        payload = json.loads(await request.body())
+    except (UnicodeDecodeError, json.JSONDecodeError):
+        return None
+    if not isinstance(payload, dict) or set(payload) != {"totp_code"}:
+        return None
+    code = payload["totp_code"]
+    return code if isinstance(code, str) and len(code) <= 16 else None
 
 
 def _local_authentication_failed() -> PlainTextResponse:

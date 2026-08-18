@@ -7,7 +7,6 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock
-from urllib.parse import parse_qs, unquote, urlsplit
 
 import httpx
 import pytest
@@ -21,7 +20,6 @@ from app.auth.local import (
     LocalAuthenticationResult,
     LocalAuthenticator,
     SuperAdminAlreadyExistsError,
-    build_totp_provisioning_uri,
     create_superadmin,
     decrypt_totp_secret,
     encrypt_totp_secret,
@@ -118,6 +116,7 @@ def make_account(settings: Settings) -> tuple[User, AdminCredential, str]:
         user_id=user.id,
         password_hash=hash_password(TEST_PASSWORD),
         totp_secret_enc=encrypt_totp_secret(settings, user_id=user.id, secret=secret),
+        totp_enabled_at=NOW,
         failed_attempts=0,
     )
     return user, credential, secret
@@ -148,7 +147,7 @@ def test_totp_storage_is_encrypted_and_bound_to_its_user() -> None:
 
 
 @pytest.mark.anyio
-async def test_create_superadmin_is_manual_argon2id_and_totp_seeded() -> None:
+async def test_create_superadmin_is_manual_argon2id_and_starts_without_mfa() -> None:
     settings = make_settings()
     db = FakeAsyncSession(rate_limit=make_rate_limit())
 
@@ -168,20 +167,29 @@ async def test_create_superadmin_is_manual_argon2id_and_totp_seeded() -> None:
     assert user.source is UserSource.MANUAL
     assert credential.password_hash.startswith("$argon2id$")
     assert PasswordHasher().verify(credential.password_hash, TEST_PASSWORD) is True
-    assert decrypt_totp_secret(settings, user_id=user.id, encrypted=credential.totp_secret_enc) == (
-        created.totp_secret
-    )
-    assert created.totp_secret not in repr(created)
+    assert credential.totp_secret_enc is None
+    assert credential.totp_enabled_at is None
     db.flush.assert_awaited_once()
 
-    uri = build_totp_provisioning_uri(email=user.email, secret=created.totp_secret)
-    parsed = urlsplit(uri)
-    assert parsed.scheme == "otpauth"
-    assert unquote(parsed.path) == "/LeakCheck SOC Portal:admin@example.test"
-    assert parse_qs(parsed.query) == {
-        "issuer": ["LeakCheck SOC Portal"],
-        "secret": [created.totp_secret],
-    }
+
+@pytest.mark.anyio
+async def test_unenrolled_local_admin_can_log_in_with_password_only() -> None:
+    settings = make_settings()
+    user, credential, _ = make_account(settings)
+    credential.totp_secret_enc = None
+    credential.totp_enabled_at = None
+    db = FakeAsyncSession(rate_limit=make_rate_limit(), account_row=(user, credential))
+
+    authenticated = await LocalAuthenticator(settings).authenticate(
+        db,  # type: ignore[arg-type]
+        username=user.email,
+        password=TEST_PASSWORD,
+        totp_code=None,
+        client_ip="192.0.2.10",
+        now=NOW,
+    )
+
+    assert authenticated.user is user
 
 
 @pytest.mark.anyio
@@ -204,7 +212,7 @@ async def test_create_superadmin_refuses_to_modify_an_existing_user() -> None:
 
 
 @pytest.mark.anyio
-async def test_local_login_requires_both_factors_and_resets_after_lockout_expiry() -> None:
+async def test_enrolled_local_login_requires_both_factors_and_resets_after_lockout_expiry() -> None:
     settings = make_settings()
     user, credential, secret = make_account(settings)
     rate_limit = make_rate_limit()
