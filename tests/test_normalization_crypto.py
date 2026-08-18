@@ -98,7 +98,7 @@ def test_password_crypto_round_trip_mask_metadata_and_aad_tamper() -> None:
         reveal_password(
             settings,
             finding_id=finding_id,
-            ciphertext=protected.ciphertext[:-1] + b"x",
+            ciphertext=protected.ciphertext[:-1] + bytes((protected.ciphertext[-1] ^ 1,)),
             nonce=protected.nonce,
         )
 

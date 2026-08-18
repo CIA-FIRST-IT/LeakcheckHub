@@ -30,8 +30,8 @@ are never displayed again, and can be left blank when updating unrelated setting
 
 The database URL, database passwords, session signing secret, trusted-host boundary, and root data key
 remain deployment bootstrap configuration. They cannot safely be stored in the database they are
-needed to connect to or decrypt. They are the only values that belong in `.env` for development and
-should come from a secret manager in production.
+needed to connect to or decrypt. Local development reads them from `.env`; the Portainer stack
+generates them automatically and persists them outside the database in a dedicated named volume.
 
 For Google sign-in, create a confidential Web OAuth client and register the configured redirect URI
 (normally `https://<portal-host>/auth/google/callback`). Until the complete Google configuration is
@@ -77,3 +77,10 @@ pytest
 
 `requirements.txt` is the production lock. `requirements-dev.txt` adds tools used exclusively by
 quality checks. No test may contact the live LeakCheck API.
+
+## Portainer deployment
+
+Use the Git-backed production stack in `compose.portainer.yaml`. GitHub publishes the application
+image to GHCR after the `main` branch passes CI, and Portainer re-pulls that image on every stack
+redeployment. See [PORTAINER.md](PORTAINER.md) for the zero-input setup, persistent-data behavior, and
+optional automatic redeployment webhook.

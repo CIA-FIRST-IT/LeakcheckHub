@@ -17,6 +17,7 @@ from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import User, UserRole, UserSource
+from app.normalization import NormalizationError, normalize_email
 from app.platform_settings import PlatformSettingError, PlatformSettingsStore, SettingKey
 
 USER_READONLY = "https://www.googleapis.com/auth/admin.directory.user.readonly"
@@ -263,9 +264,13 @@ def _parse_user(raw: object) -> WorkspaceUser | None:
         return None
     name = raw.get("name")
     display = name.get("fullName") if isinstance(name, dict) else None
+    try:
+        normalized_email = normalize_email(email)
+    except NormalizationError:
+        return None
     return WorkspaceUser(
         external_id=external_id,
-        email=email.casefold(),
+        email=normalized_email,
         display_name=display if isinstance(display, str) and display else email,
         ou_path=str(raw.get("orgUnitPath", "/")),
         suspended=raw.get("suspended") is True,
