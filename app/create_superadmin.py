@@ -11,7 +11,6 @@ from app.auth.local import (
     CreatedSuperAdmin,
     LocalAuthenticationError,
     SuperAdminAlreadyExistsError,
-    build_totp_provisioning_uri,
     create_superadmin,
 )
 from app.config import get_settings
@@ -23,7 +22,7 @@ def build_argument_parser() -> argparse.ArgumentParser:
 
     parser = argparse.ArgumentParser(
         prog="create-superadmin",
-        description="Create a local super-admin and print its one-time TOTP provisioning URI.",
+        description="Create a password-only local super-admin. MFA is enrolled after sign-in.",
     )
     parser.add_argument("--email", help="super-admin account email (prompted when omitted)")
     parser.add_argument("--display-name", help="super-admin display name (prompted when omitted)")
@@ -31,7 +30,7 @@ def build_argument_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: Sequence[str] | None = None) -> None:
-    """Prompt safely, create the account transactionally, and print the one-time TOTP URI."""
+    """Prompt safely and create the password-only account transactionally."""
 
     parser = build_argument_parser()
     arguments = parser.parse_args(argv)
@@ -52,11 +51,8 @@ def main(argv: Sequence[str] | None = None) -> None:
     except SuperAdminAlreadyExistsError:
         parser.exit(1, "An account with that email already exists; no account was changed.\n")
 
-    uri = build_totp_provisioning_uri(email=created.user.email, secret=created.totp_secret)
     print(f"Created super-admin account for {created.user.email}.")
-    print("Scan this one-time TOTP provisioning URI with an authenticator app:")
-    print(uri)
-    print("Store the seed in the authenticator now; it is not retrievable from the portal.")
+    print("Sign in with the password, then enroll MFA from Account security.")
 
 
 async def _create(*, email: str, display_name: str, password: str) -> CreatedSuperAdmin:
