@@ -29,6 +29,7 @@ def test_settings_accept_complete_blank_slate_integration_configuration() -> Non
     update = SettingsUpdate(
         leakcheck_api_key="enterprise-key-fixture",
         leakcheck_rps=3,
+        self_check_cooldown_seconds=3600,
         google_client_id="client.apps.googleusercontent.com",
         google_client_secret="client-secret-fixture",  # noqa: S106 - synthetic setting
         google_redirect_uri="https://portal.example.test/auth/google/callback",
@@ -44,6 +45,7 @@ def test_settings_accept_complete_blank_slate_integration_configuration() -> Non
     assert update.google_workspace_service_account_json is not None
     assert json.loads(update.google_workspace_service_account_json)["type"] == "service_account"
     assert update.leakcheck_rps == 3
+    assert update.self_check_cooldown_seconds == 3600
 
 
 @pytest.mark.parametrize(

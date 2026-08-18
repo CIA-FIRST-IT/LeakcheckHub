@@ -33,7 +33,7 @@ plugins = ["pydantic.mypy"]
 exclude = ["migrations"]
 
 [[tool.mypy.overrides]]
-module = ["alembic.*"]
+module = ["alembic.*", "apscheduler.*"]
 ignore_missing_imports = true
 
 [tool.pytest.ini_options]
@@ -47,4 +47,3 @@ source = ["app"]
 [tool.coverage.report]
 fail_under = 90
 show_missing = true
-
