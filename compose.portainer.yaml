@@ -12,6 +12,51 @@ x-app-service: &app-service
   # one at a time once the stack is confirmed healthy.
 
 services:
+  # TEMPORARY. Three one-shot probes that isolate which hardening option this host rejects.
+  # Nothing depends on them, so a probe that fails does not fail the stack: the running services
+  # come up normally and the probes' exit codes are the result. In Portainer, show stopped
+  # containers and read leakcheck-probe-*: exit 0 means the option is safe to adopt, exit 255
+  # means the host refuses to exec the interpreter under it.
+  #
+  # Remove this block, and apply whatever passed to x-app-service, once the answer is known.
+  probe-caps:
+    image: ghcr.io/cia-first-it/leakcheckhub:latest
+    pull_policy: always
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    cap_drop:
+      - ALL
+    command: ["python", "-c", "print('probe-caps: cap_drop ALL is supported')"]
+    networks:
+      - database
+
+  probe-nnp:
+    image: ghcr.io/cia-first-it/leakcheckhub:latest
+    pull_policy: always
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    security_opt:
+      - no-new-privileges:true
+    command: ["python", "-c", "print('probe-nnp: no-new-privileges is supported')"]
+    networks:
+      - database
+
+  probe-both:
+    image: ghcr.io/cia-first-it/leakcheckhub:latest
+    pull_policy: always
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    command: ["python", "-c", "print('probe-both: both options together are supported')"]
+    networks:
+      - database
+
   # One-shot. Generates any missing bootstrap secret and exits. Runs as the unprivileged image
   # user: the volume inherits app:app ownership from the image, so no privileged container is
   # needed. Attached to the internal network only, which has no route off the host.
