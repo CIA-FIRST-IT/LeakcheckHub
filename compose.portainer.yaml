@@ -70,7 +70,11 @@ services:
       - bootstrap-secrets:/run/leakcheck-bootstrap:ro
     depends_on:
       postgres:
-        condition: service_healthy
+        # service_started, not service_healthy. The application waits for the database itself,
+        # retrying with backoff, so gating here only converts a slow or unhappy database into a
+        # failed stack deployment that cannot be inspected. Postgres keeps its healthcheck; the
+        # status is still reported, it just no longer blocks the whole stack from coming up.
+        condition: service_started
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3)"]
       interval: 15s
