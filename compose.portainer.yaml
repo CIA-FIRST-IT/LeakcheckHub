@@ -54,7 +54,14 @@ services:
     cap_drop:
       - ALL
     cap_add:
+      # The entrypoint runs as root and prepares the data directory before dropping to the
+      # postgres user. Once initdb has run, that directory is mode 0700 owned by uid 999, so
+      # root needs DAC_OVERRIDE to traverse it and FOWNER to chmod a directory it does not own.
+      # Without these the container works on the very first boot, when the volume is still empty
+      # and root-owned, and then crash-loops on every boot afterwards.
       - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
       - SETGID
       - SETUID
     networks:
