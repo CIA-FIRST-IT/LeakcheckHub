@@ -77,6 +77,7 @@ class IngestSummary:
     findings: tuple[Finding, ...]
     new_count: int
     re_leaked_count: int
+    new_finding_ids: tuple[uuid.UUID, ...] = ()
 
 
 class IngestRepository(Protocol):
@@ -161,6 +162,7 @@ class SQLAlchemyIngestRepository:
                 "last_seen_at": insert_statement.excluded.last_seen_at,
                 "raw": insert_statement.excluded.raw,
                 "fields": insert_statement.excluded.fields,
+                "origin": insert_statement.excluded.origin,
             },
         ).returning(Finding, literal_column("(xmax = 0)").label("is_new"))
         result = await self._db.execute(statement)
@@ -233,6 +235,7 @@ async def ingest_records(
     findings: list[Finding] = []
     new_count = 0
     re_leaked_count = 0
+    new_finding_ids: list[uuid.UUID] = []
     for record in records:
         source_identity = normalize_source(record.source)
         source = await repository.resolve_source(source_identity)
@@ -250,6 +253,7 @@ async def ingest_records(
         if not upserted.is_new:
             continue
         new_count += 1
+        new_finding_ids.append(finding.id)
         await repository.add_event(
             finding.id,
             FindingEventType.DISCOVERED,
@@ -268,7 +272,7 @@ async def ingest_records(
             meta={"previous_finding_id": str(predecessor.id)},
         )
         re_leaked_count += 1
-    return IngestSummary(tuple(findings), new_count, re_leaked_count)
+    return IngestSummary(tuple(findings), new_count, re_leaked_count, tuple(new_finding_ids))
 
 
 def build_finding_draft(
