@@ -1,0 +1,120 @@
+name: leakcheck
+
+x-app-service: &app-service
+  image: ghcr.io/cia-first-it/leakcheckhub:latest
+  pull_policy: always
+  read_only: true
+  tmpfs:
+    - /tmp:rw,noexec,nosuid,size=64m
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+
+services:
+  secrets-init:
+    <<: *app-service
+    user: "0:0"
+    command: ["python", "-m", "app.bootstrap_secrets", "init"]
+    volumes:
+      - bootstrap-secrets:/run/leakcheck-bootstrap
+    network_mode: none
+
+  postgres:
+    image: postgres:16.8-bookworm
+    pull_policy: missing
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: leakcheck
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD_FILE: /run/leakcheck-bootstrap/postgres-password
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - bootstrap-secrets:/run/leakcheck-bootstrap:ro
+    depends_on:
+      secrets-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d leakcheck"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+      start_period: 15s
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+      - /var/run/postgresql:rw,nosuid,size=8m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+    networks:
+      - database
+
+  bootstrap:
+    <<: *app-service
+    command: ["python", "-m", "app.bootstrap_secrets", "bootstrap"]
+    volumes:
+      - bootstrap-secrets:/run/leakcheck-bootstrap:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - database
+
+  migrate:
+    <<: *app-service
+    command: ["python", "-m", "app.bootstrap_secrets", "migrate"]
+    volumes:
+      - bootstrap-secrets:/run/leakcheck-bootstrap:ro
+    depends_on:
+      bootstrap:
+        condition: service_completed_successfully
+    networks:
+      - database
+
+  web:
+    <<: *app-service
+    restart: unless-stopped
+    volumes:
+      - bootstrap-secrets:/run/leakcheck-bootstrap:ro
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3)"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    ports:
+      - "8000:8000"
+    networks:
+      - application
+      - database
+
+  worker:
+    <<: *app-service
+    command: ["python", "-m", "app.worker"]
+    restart: unless-stopped
+    volumes:
+      - bootstrap-secrets:/run/leakcheck-bootstrap:ro
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    networks:
+      - application
+      - database
+
+networks:
+  application:
+  database:
+    internal: true
+
+volumes:
+  bootstrap-secrets:
+  postgres-data:

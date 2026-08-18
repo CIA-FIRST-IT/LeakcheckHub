@@ -52,6 +52,12 @@ def test_rejects_wildcard_host_allow_list() -> None:
         valid_settings(trusted_hosts=("*",))
 
 
+def test_zero_input_deployment_can_explicitly_allow_an_unconfigured_host() -> None:
+    settings = valid_settings(trusted_hosts=("*",), allow_unconfigured_hosts=True)
+
+    assert settings.trusted_hosts == ("*",)
+
+
 def test_rejects_local_host_in_production() -> None:
     with pytest.raises(ValidationError, match="must not contain local hosts"):
         valid_settings(environment=Environment.PRODUCTION, trusted_hosts=("localhost",))
