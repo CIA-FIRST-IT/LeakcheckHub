@@ -147,3 +147,25 @@ footer { padding: 2rem; color: var(--muted); text-align: center; border-top: 1px
 .totp-qr svg {
   display: block;
 }
+
+.signout {
+  margin-left: 0.75rem;
+  padding: 0.4rem 0.9rem;
+  font: inherit;
+  font-size: 0.85rem;
+  color: inherit;
+  background: transparent;
+  border: 1px solid currentColor;
+  border-radius: 6px;
+  cursor: pointer;
+  opacity: 0.8;
+}
+
+.signout:hover:not(:disabled) {
+  opacity: 1;
+}
+
+.signout:disabled {
+  cursor: progress;
+  opacity: 0.5;
+}

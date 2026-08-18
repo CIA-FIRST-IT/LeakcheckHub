@@ -204,3 +204,25 @@ document.body.addEventListener("click", async (event) => {
     target.title = "Copy failed";
   }
 });
+
+// Sign out. POST + CSRF so a stray link or prefetch cannot end someone's session.
+document.querySelector("#sign-out")?.addEventListener("click", async (event) => {
+  const button = event.currentTarget;
+  button.disabled = true;
+  try {
+    await fetch("/auth/csrf", { credentials: "same-origin" });
+    const token = (document.cookie.split("; ").find((p) => p.startsWith("__Host-leakcheck-csrf=")) || "").split("=")[1] || "";
+    const response = await fetch("/auth/logout", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "X-CSRF-Token": token },
+    });
+    if (response.ok) {
+      window.location.assign("/");
+      return;
+    }
+  } catch (error) {
+    // fall through to re-enable
+  }
+  button.disabled = false;
+});

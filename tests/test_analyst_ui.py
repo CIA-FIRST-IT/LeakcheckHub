@@ -348,3 +348,24 @@ def test_csv_export_neutralizes_spreadsheet_formulas(dangerous: str) -> None:
 
 def test_csv_export_leaves_ordinary_vendor_values_unchanged() -> None:
     assert _csv_cell("Canva") == "Canva"
+
+
+def test_every_authenticated_page_offers_a_sign_out_control() -> None:
+    """A portal holding breach credentials must let someone end their session from any screen."""
+
+    from app.analyst_ui import page
+
+    user = User(
+        id=uuid.uuid4(),
+        email="analyst@example.test",
+        display_name="Analyst",
+        role=UserRole.ANALYST,
+        is_active=True,
+        source=UserSource.MANUAL,
+    )
+
+    markup = page("Scan", "<p>body</p>", user=user)
+
+    assert 'id="sign-out"' in markup
+    # A GET link would let a prefetch or an <img> tag end the session; logout is POST + CSRF.
+    assert '<a href="/auth/logout"' not in markup

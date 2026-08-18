@@ -106,24 +106,28 @@ encrypted in PostgreSQL, and must not be placed in environment variables.
 
 ## 5. Container hardening
 
-The published stack currently runs without `no-new-privileges` and without dropping all Linux
-capabilities. Those settings were removed because the target host refused to execute the
-interpreter under them, reporting `exec /usr/local/bin/python: operation not permitted`. Containers
-still run as an unprivileged image user with a read-only root filesystem on an internal network.
+Every container drops all Linux capabilities (`cap_drop: ALL`), runs as an unprivileged image
+user, and has a read-only root filesystem. PostgreSQL adds back only `CHOWN`, `SETGID`, and
+`SETUID`.
 
-If your host tolerates the stricter settings, restore them one service at a time and confirm the
-stack still starts:
+`no-new-privileges` is deliberately not set. On the reference host it caused
+`exec /usr/local/bin/python: operation not permitted` — the kernel refusing `execve` outright.
+Probing each option separately showed `cap_drop: ALL` passes and `no-new-privileges` alone fails,
+so the two were not equally at fault and only the failing one is omitted.
+
+That signature is characteristic of an AppArmor profile transition being refused while
+`no_new_privs` is set. It appears on hosts running Docker from a snap, Docker nested inside
+LXC/LXD, or with a `docker-default` profile that is missing or altered. If your host does not have
+that problem, add:
 
 ```yaml
 security_opt:
   - no-new-privileges:true
-cap_drop:
-  - ALL
 ```
 
-A host that rejects them is usually running a hardened runtime (gVisor, Sysbox), SELinux in
-enforcing mode, or a custom daemon seccomp profile. Identifying which is preferable to leaving the
-settings off permanently.
+and confirm the stack still starts. Fixing the host's AppArmor configuration is preferable to
+leaving the option off; `docker info` under **Host → Details** in Portainer lists the active
+security options.
 
 ## 6. Before going live
 
