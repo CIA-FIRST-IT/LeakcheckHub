@@ -116,7 +116,12 @@ async def test_domain_pages_until_a_short_page_without_trusting_found() -> None:
 
 @pytest.mark.anyio
 async def test_tolerant_source_parser_retains_the_full_raw_record() -> None:
-    raw = {"email": "x@example.test", "source": {"name": "Unknown"}, "vendor_extra": {"x": 1}}
+    raw = {
+        "email": "x@example.test",
+        "origin": ["bill24.net", "login.bill24.net"],
+        "source": {"name": "Unknown"},
+        "vendor_extra": {"x": 1},
+    }
     client, http_client = mock_client(
         lambda _: httpx.Response(200, content=response_payload([raw]))
     )
@@ -128,6 +133,7 @@ async def test_tolerant_source_parser_retains_the_full_raw_record() -> None:
     assert record.source.name == "Unknown"
     assert record.source.breach_date is None
     assert record.source.passwordless is None
+    assert record.origin == "bill24.net, login.bill24.net"
     assert record.raw == raw
 
 

@@ -170,14 +170,19 @@ _Completed 2026-08-17:_ M8-01 through M8-06 are committed and green on PR #6.
 
 - [ ] `M9-01` **Verify the live Wazuh and DFIR-IRIS API contracts against the real instances first** —
       do not write the mapping from documentation alone
-- [ ] `M9-02` `AlertSink` interface + `alert_outbox` with retry and dead-lettering
+- [x] `M9-02` `AlertSink` interface + `alert_outbox` with retry and dead-lettering
 - [ ] `M9-03` Wazuh sink: API `/events` with JWT auth from `/security/user/authenticate`; syslog fallback
 - [ ] `M9-04` DFIR-IRIS sink: `/alerts/add`, finding → alert mapping including the email as an IOC
-- [ ] `M9-05` `watchlist` model + UI with per-entry channel toggles
+- [x] `M9-05` `watchlist` model + UI with per-entry channel toggles
 - [ ] `M9-06` Fan-out on new / re-leaked findings for watchlisted subjects
 - [ ] `M9-07` "Send test alert" admin action; tests with mocked sinks incl. total-outage path
 
 **Done when:** a new leak on a watchlisted VIP mails SOC + user and lands in both SIEMs.
+
+_Foundation status 2026-08-17:_ M9-02 and M9-05 are committed and green on PR #7. Contract-neutral
+portions of M9-06 and M9-07 are also present: safe new/re-leak envelopes and queued test alerts with
+total-outage tests. No sink adapter is registered and no remote payload mapping is written until M9-01
+is completed against the real Wazuh and DFIR-IRIS instances.
 
 ## M10 — Hardening & operations
 

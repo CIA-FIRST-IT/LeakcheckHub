@@ -65,12 +65,13 @@ async def dispatch_due_schedules(db: AsyncSession, *, now: datetime | None = Non
                 target_type = (
                     BatchTarget.OU if schedule.kind is ScheduleKind.SCAN_OU else BatchTarget.DOMAIN
                 )
-                await create_batch(
+                batch = await create_batch(
                     db,
                     actor_id=schedule.created_by,
                     target_type=target_type,
                     target_value=schedule.target,
                 )
+                schedule.last_batch_id = batch.id
         except ValueError as exc:
             schedule.last_error = str(exc)[:255]
         else:

@@ -102,6 +102,17 @@ class NotificationStatus(StrEnum):
     FAILED = "failed"
 
 
+class AlertSinkName(StrEnum):
+    WAZUH = "wazuh"
+    DFIR_IRIS = "dfir_iris"
+
+
+class AlertOutboxStatus(StrEnum):
+    PENDING = "pending"
+    DELIVERED = "delivered"
+    DEAD_LETTER = "dead_letter"
+
+
 class FindingSeverity(StrEnum):
     LOW = "low"
     MEDIUM = "medium"
@@ -189,11 +200,12 @@ class AdminCredential(Base):
         deferred=True,
         deferred_raiseload=True,
     )
-    totp_secret_enc: Mapped[bytes] = mapped_column(
-        nullable=False,
+    totp_secret_enc: Mapped[bytes | None] = mapped_column(
+        nullable=True,
         deferred=True,
         deferred_raiseload=True,
     )
+    totp_enabled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     failed_attempts: Mapped[int] = mapped_column(
         Integer,
         nullable=False,
@@ -596,6 +608,11 @@ class Schedule(Base):
         Integer, nullable=False, default=300, server_default="300"
     )
     last_run_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    last_batch_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("scan_batches.id", name="fk_schedules_last_batch_id", ondelete="SET NULL"),
+        index=True,
+    )
     next_run_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     last_error: Mapped[str | None] = mapped_column(String(255))
     created_by: Mapped[uuid.UUID] = mapped_column(
@@ -637,3 +654,80 @@ class Notification(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
     sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class WatchlistEntry(Base):
+    """One VIP subject or user and its independently selectable alert channels."""
+
+    __tablename__ = "watchlist"
+    __table_args__ = (
+        CheckConstraint(
+            "(subject_id IS NOT NULL) <> (user_id IS NOT NULL)",
+            name="ck_watchlist_exactly_one_target",
+        ),
+        UniqueConstraint("subject_id", name="uq_watchlist_subject_id"),
+        UniqueConstraint("user_id", name="uq_watchlist_user_id"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    subject_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("subjects.id", name="fk_watchlist_subject_id")
+    )
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", name="fk_watchlist_user_id")
+    )
+    alert_soc: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+    alert_user: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+    alert_wazuh: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+    alert_iris: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+    enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+    created_by: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id", name="fk_watchlist_created_by"), index=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class AlertOutbox(Base):
+    """Contract-neutral SIEM delivery work with bounded retries and dead-lettering."""
+
+    __tablename__ = "alert_outbox"
+    __table_args__ = (
+        UniqueConstraint("dedupe_key", name="uq_alert_outbox_dedupe_key"),
+        CheckConstraint("octet_length(dedupe_key) = 32", name="ck_alert_outbox_dedupe_key"),
+        CheckConstraint("attempts >= 0", name="ck_alert_outbox_attempts"),
+        Index("ix_alert_outbox_due", "status", "next_attempt_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    sink: Mapped[AlertSinkName] = mapped_column(
+        Enum(AlertSinkName, name="alert_sink_name", values_callable=_enum_values), nullable=False
+    )
+    payload: Mapped[dict[str, object]] = mapped_column(JSONB, nullable=False)
+    status: Mapped[AlertOutboxStatus] = mapped_column(
+        Enum(AlertOutboxStatus, name="alert_outbox_status", values_callable=_enum_values),
+        nullable=False,
+        default=AlertOutboxStatus.PENDING,
+        server_default=AlertOutboxStatus.PENDING.value,
+    )
+    dedupe_key: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, default=0, server_default="0")
+    next_attempt_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    last_error: Mapped[str | None] = mapped_column(String(255))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
