@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
 import html
 import json
 import re
@@ -15,6 +17,7 @@ from pydantic import BaseModel, Field, ValidationError, field_validator, model_v
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import branding
 from app.alerts import enqueue_test_alert
 from app.analyst_ui import page
 from app.audit import audit_event
@@ -39,6 +42,7 @@ from app.retention import load_policy
 
 _ADMIN_GUARD = require_role(UserRole.SUPER_ADMIN)
 _MAX_BODY_BYTES = 32 * 1024
+_MAX_LOGO_BODY_BYTES = 2 * 1024 * 1024
 _DOMAIN = re.compile(
     r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+"
 )
@@ -226,6 +230,17 @@ def _role_options(selected: UserRole) -> str:
     )
 
 
+def _logo_preview(brand: branding.OrganisationBranding) -> str:
+    if not brand.has_logo:
+        return '<p id="logo-preview">No logo uploaded.</p>'
+    # The digest busts the cache when the logo is replaced.
+    digest = html.escape(brand.logo_sha256 or "")
+    return (
+        '<p id="logo-preview"><img class="logo-preview" alt="Current organisation logo" '
+        f'src="/branding/logo?v={digest}"></p>'
+    )
+
+
 def _retention_options(selected: str) -> str:
     labels = {
         "indefinite": "Keep indefinitely",
@@ -310,6 +325,7 @@ async def settings_page(
     listed = await db.execute(select(User).order_by(User.email))
     users = list(listed.scalars().all())
     retention = await load_policy(db, store)
+    brand = await branding.load(db)
     quota_row = await db.execute(
         select(Scan.quota, Scan.started_at)
         .where(Scan.quota.is_not(None))
@@ -353,16 +369,25 @@ async def settings_page(
             '<form id="settings-form" class="settings-stack"><section class="panel">',
             "<h2>Google sign-in</h2>",
             oidc_fields,
+            '<p class="panel-actions"><button type="submit">Save</button>'
+            "<small>Saves every settings panel; blank fields are "
+            "left unchanged.</small></p>",
             '</section><section class="panel"><h2>Google Workspace OU sync ',
             '<button type="button" class="help-button" ',
             'aria-label="How to configure Google Workspace OU sync" ',
             'data-dialog-open="google-workspace-help">?</button></h2>',
             "<p>Read-only Directory access using domain-wide delegation.</p>",
             workspace_fields,
+            '<p class="panel-actions"><button type="submit">Save</button>'
+            "<small>Saves every settings panel; blank fields are "
+            "left unchanged.</small></p>",
             '<p><button type="button" id="workspace-sync">Sync Workspace users now</button></p>',
             '</section><section class="panel"><h2>Other integrations</h2>',
             other_fields,
-            '<button type="submit">Save settings</button></section></form>',
+            '<p class="panel-actions"><button type="submit">Save</button>'
+            "<small>Saves every settings panel; blank fields are "
+            "left unchanged.</small></p>",
+            "</section></form>",
             '<section class="panel"><h2>SIEM test alerts</h2>',
             "<p>These queue a contract-neutral test event. Delivery remains inactive until ",
             "the corresponding live API contract has been verified.</p>",
@@ -383,7 +408,21 @@ async def settings_page(
             '"></label>',
             "<p>Only remediated findings are deleted; an open exposure is never removed ",
             "automatically. Deletion is permanent and is not written to the event trail.</p>",
+            '<p class="panel-actions"><button type="submit" form="settings-form">Save</button></p>',
             "</section>",
+            '<section class="panel"><h2>Organisation branding</h2>',
+            "<p>Shown on the sign-in page. PNG, JPEG, GIF, or WebP up to 1 MB; SVG is not ",
+            "accepted because it can carry script.</p>",
+            '<form id="branding-form">',
+            '<label>Organisation name <input name="organization_name" maxlength="120" value="',
+            html.escape(brand.name or ""),
+            '"></label>',
+            '<label>Logo <input type="file" id="logo-file" accept="image/png,image/jpeg,'
+            'image/gif,image/webp"></label>',
+            _logo_preview(brand),
+            '<p class="panel-actions"><button type="submit">Save branding</button>',
+            '<button type="button" id="clear-logo">Remove logo</button></p>',
+            "</form></section>",
             '<section class="panel"><h2>LeakCheck quota</h2>',
             _quota_panel(latest_quota),
             "</section>",
@@ -567,6 +606,62 @@ async def update_user(
     return JSONResponse({"id": str(user.id), "role": user.role.value, "is_active": user.is_active})
 
 
+class BrandingUpdate(BaseModel):
+    organization_name: str | None = Field(default=None, max_length=120)
+    # Base64 rather than multipart: FastAPI file uploads need python-multipart, and a new runtime
+    # dependency is not worth one form.
+    logo_base64: str | None = Field(default=None, max_length=2 * 1024 * 1024)
+    clear_logo: bool = False
+
+
+@router.post("/branding", response_model=None)
+async def update_branding(
+    request: Request,
+    db: AsyncSession = Depends(get_db_session),  # noqa: B008
+    current_user: User = Depends(_ADMIN_GUARD),  # noqa: B008
+) -> JSONResponse:
+    """Set the organisation name and logo shown on the sign-in page."""
+
+    payload = BrandingUpdate.model_validate(await _json_body(request, limit=_MAX_LOGO_BODY_BYTES))
+    changed: list[str] = []
+    if payload.organization_name is not None:
+        await branding.set_name(db, payload.organization_name)
+        changed.append("organization_name")
+    if payload.clear_logo:
+        await branding.clear_logo(db)
+        changed.append("logo_cleared")
+    elif payload.logo_base64:
+        try:
+            raw = base64.b64decode(payload.logo_base64, validate=True)
+        except (binascii.Error, ValueError) as exc:
+            raise HTTPException(status_code=422, detail="The logo is not valid base64.") from exc
+        try:
+            await branding.set_logo(db, raw)
+        except branding.LogoRejected as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
+        changed.append("logo")
+    if not changed:
+        raise HTTPException(status_code=422, detail="Nothing to update.")
+    await audit_event(
+        db,
+        request,
+        request.app.state.settings,
+        action="admin.branding_updated",
+        actor_id=current_user.id,
+        target_type="branding",
+        meta={"changed": changed},
+    )
+    current = await branding.load(db)
+    return JSONResponse(
+        {
+            "changed": changed,
+            "organization_name": current.name,
+            "has_logo": current.has_logo,
+            "logo_sha256": current.logo_sha256,
+        }
+    )
+
+
 @router.post("/users/{user_id}/sessions/revoke", response_model=None)
 async def revoke_user_sessions(
     user_id: uuid.UUID,
@@ -657,16 +752,16 @@ async def queue_test_alert(
     return JSONResponse({"queued": sink.value}, status_code=202)
 
 
-async def _json_body(request: Request) -> object:
+async def _json_body(request: Request, *, limit: int = _MAX_BODY_BYTES) -> object:
     content_length = request.headers.get("content-length")
     if content_length is not None:
         try:
-            if int(content_length) > _MAX_BODY_BYTES:
+            if int(content_length) > limit:
                 raise HTTPException(status_code=413, detail="Request body is too large.")
         except ValueError as exc:
             raise HTTPException(status_code=400, detail="Invalid Content-Length.") from exc
     body = await request.body()
-    if len(body) > _MAX_BODY_BYTES:
+    if len(body) > limit:
         raise HTTPException(status_code=413, detail="Request body is too large.")
     try:
         return json.loads(body)

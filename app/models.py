@@ -731,3 +731,29 @@ class AlertOutbox(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
     delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class Branding(Base):
+    """Organisation identity shown on the unauthenticated landing page.
+
+    Exactly one row, pinned by a check constraint. The logo is stored as bytes rather than a
+    filesystem path because the containers run with a read-only root filesystem and no shared
+    upload volume.
+    """
+
+    __tablename__ = "branding"
+    __table_args__ = (
+        CheckConstraint("id = 1", name="ck_branding_single_row"),
+        CheckConstraint(
+            "logo IS NULL OR octet_length(logo) <= 1048576", name="ck_branding_logo_size"
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, default=1)
+    organization_name: Mapped[str | None] = mapped_column(String(120))
+    logo: Mapped[bytes | None] = mapped_column(LargeBinary)
+    logo_content_type: Mapped[str | None] = mapped_column(String(64))
+    logo_sha256: Mapped[str | None] = mapped_column(String(64))
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )

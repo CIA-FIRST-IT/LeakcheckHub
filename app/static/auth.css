@@ -55,3 +55,120 @@ button:disabled { cursor: wait; opacity: .65; }
   .signal { display: none; }
   .login-panel { padding: 2.5rem 1.4rem 4rem; }
 }
+/* Landing page: one instruction, one action. */
+.landing-shell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1.75rem;
+  min-height: 100vh;
+  padding: 2rem 1.25rem 5rem;
+  text-align: center;
+}
+
+.org-identity {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.org-logo {
+  max-width: min(260px, 70vw);
+  max-height: 120px;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+}
+
+.org-name {
+  margin: 0;
+  font-size: 1.05rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  opacity: 0.75;
+}
+
+.landing-shell h1 {
+  max-width: 22ch;
+  margin: 0;
+  font-size: clamp(1.5rem, 4vw, 2.4rem);
+  line-height: 1.25;
+}
+
+.google-button.primary {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem 2rem;
+  font-size: 1.05rem;
+  font-weight: 600;
+  border-radius: 10px;
+}
+
+.google-glyph {
+  display: inline-grid;
+  place-items: center;
+  width: 1.6rem;
+  height: 1.6rem;
+  font-weight: 700;
+  background: #fff;
+  color: #4285f4;
+  border-radius: 50%;
+}
+
+/* Break-glass entry, out of the way but reachable. */
+.admin-corner {
+  position: fixed;
+  right: 1rem;
+  bottom: 1rem;
+  padding: 0.5rem 0.9rem;
+  font: inherit;
+  font-size: 0.8rem;
+  color: inherit;
+  background: transparent;
+  border: 1px solid currentColor;
+  border-radius: 6px;
+  cursor: pointer;
+  opacity: 0.55;
+}
+
+.admin-corner:hover,
+.admin-corner:focus-visible {
+  opacity: 1;
+}
+
+.admin-dialog {
+  width: min(28rem, 92vw);
+  padding: 1.75rem;
+  border: none;
+  border-radius: 12px;
+}
+
+.admin-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.55);
+}
+
+.dialog-actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.logo-preview {
+  max-width: 220px;
+  max-height: 90px;
+  object-fit: contain;
+}
+
+.panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.panel-actions small {
+  opacity: 0.65;
+}

@@ -14,6 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import undefer
 
+from app import branding
 from app.analyst_ui import page
 from app.audit import audit_event
 from app.auth.authorization import get_session_manager_for_request, require_role
@@ -117,32 +118,75 @@ async def landing_page(
             UserRole.USER: "/portal",
         }
         return RedirectResponse(destinations[verified.user.role], status_code=303)
+    brand = await branding.load(db)
+    name = html.escape(brand.display_name)
+    logo = (
+        f'<img class="org-logo" alt="{name}" '
+        f'src="/branding/logo?v={html.escape(brand.logo_sha256 or "")}">'
+        if brand.has_logo
+        else '<div class="brand-mark" aria-hidden="true">LC</div>'
+    )
     return HTMLResponse(
-        """<!doctype html><html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width"><title>Sign in · LeakCheck Hub</title>
-<link rel="stylesheet" href="/static/auth.css?v=2"></head>
-<body class="auth-page"><main class="auth-shell"><section class="brand-panel">
-<div class="brand-mark" aria-hidden="true">LC</div><p class="eyebrow">CIA FIRST IT</p>
-<h1>Find exposed credentials before attackers do.</h1>
-<p class="brand-copy">A focused security workspace for breach monitoring, investigation,
-and remediation.</p><div class="signal" aria-hidden="true"><span></span><span></span><span></span>
-</div></section><section class="login-panel"><div class="login-card">
-<p class="eyebrow">SECURE ACCESS</p><h2>Welcome back</h2>
-<p class="subtitle">Sign in to continue to LeakCheck Hub.</p>
-<form id="local-login" class="auth-form"><label>Email address
-<input name="username" type="email" autocomplete="username" placeholder="admin@example.com"
-required>
-</label><label>Password<input name="password" type="password" autocomplete="current-password"
-placeholder="Enter your password" required></label>
-<label>Authenticator code <span class="optional">Optional until enabled</span>
-<input name="totp_code" inputmode="numeric" autocomplete="one-time-code" maxlength="6"
-placeholder="000000"></label><button type="submit">Sign in</button></form>
-<output id="login-result" class="form-status"></output><div class="divider"><span>or</span></div>
-<a class="google-button" href="/auth/google/login">Continue with Google</a>
-<p class="security-note">Protected by encrypted sessions and role-based access.</p>
-</div></section></main><script src="/static/login.js?v=2" defer></script></body></html>""",
+        "".join(
+            (
+                '<!doctype html><html lang="en"><head><meta charset="utf-8">',
+                '<meta name="viewport" content="width=device-width,initial-scale=1">',
+                f"<title>Sign in · {name}</title>",
+                '<link rel="stylesheet" href="/static/auth.css?v=3"></head>',
+                '<body class="auth-page landing"><main class="landing-shell">',
+                f'<div class="org-identity">{logo}<p class="org-name">{name}</p></div>',
+                "<h1>Sign in with Google to scan your email for leaked credentials.</h1>",
+                '<a class="google-button primary" href="/auth/google/login">',
+                '<span class="google-glyph" aria-hidden="true">G</span>',
+                "Sign in with Google</a>",
+                '<output id="login-result" class="form-status"></output>',
+                "</main>",
+                '<button type="button" id="admin-toggle" class="admin-corner" ',
+                'aria-expanded="false" aria-controls="admin-login">Super Admin Sign In</button>',
+                '<dialog id="admin-login" class="admin-dialog">',
+                '<form id="local-login" class="auth-form" method="dialog">',
+                "<h2>Super Admin Sign In</h2>",
+                "<label>Email address",
+                '<input name="username" type="email" autocomplete="username" required></label>',
+                "<label>Password",
+                '<input name="password" type="password" autocomplete="current-password" ',
+                "required></label>",
+                '<label>Authenticator code <span class="optional">Once MFA is enabled</span>',
+                '<input name="totp_code" inputmode="numeric" autocomplete="one-time-code" ',
+                'maxlength="6" placeholder="000000"></label>',
+                '<div class="dialog-actions"><button type="submit">Sign in</button>',
+                '<button type="button" id="admin-close">Cancel</button></div></form>',
+                "</dialog>",
+                '<script src="/static/login.js?v=3" defer></script></body></html>',
+            )
+        ),
         headers={"Cache-Control": "no-store"},
     )
+
+
+@router.get("/branding/logo", response_model=None)
+async def branding_logo(
+    request: Request,
+    db: AsyncSession = Depends(get_db_session),  # noqa: B008
+) -> Response:
+    """Serve the organisation logo. Public: it is rendered on the sign-in page."""
+
+    stored = await branding.load_logo(db)
+    if stored is None:
+        return Response(status_code=404)
+    data, content_type, digest = stored
+    etag = f'"{digest}"' if digest else None
+    if etag and request.headers.get("if-none-match") == etag:
+        return Response(status_code=304, headers={"ETag": etag})
+    headers = {
+        # Revalidate every time so a replaced logo appears immediately; the ETag keeps it cheap.
+        "Cache-Control": "public, max-age=0, must-revalidate",
+        "Content-Security-Policy": "default-src 'none'; sandbox",
+        "X-Content-Type-Options": "nosniff",
+    }
+    if etag:
+        headers["ETag"] = etag
+    return Response(content=data, media_type=content_type, headers=headers)
 
 
 @router.get("/auth/csrf", response_model=None)

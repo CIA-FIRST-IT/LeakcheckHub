@@ -189,3 +189,66 @@ for (const button of document.querySelectorAll("[data-revoke-sessions]")) {
     }
   });
 }
+
+// Branding. The logo is sent as base64 in JSON so the app needs no multipart dependency.
+function readAsBase64(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(new Error("could not read the file"));
+    reader.onload = () => resolve(String(reader.result).split(",")[1] || "");
+    reader.readAsDataURL(file);
+  });
+}
+
+async function postBranding(payload, button, okMessage) {
+  setBusy(button, true, "Saving…");
+  try {
+    await fetch("/auth/csrf", { credentials: "same-origin" });
+    const response = await fetch("/admin/branding", {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": cookieValue("__Host-leakcheck-csrf") },
+      body: JSON.stringify(payload),
+    });
+    const body = await response.json().catch(() => ({}));
+    if (response.ok) {
+      result.textContent = okMessage;
+      const preview = document.querySelector("#logo-preview");
+      if (preview) {
+        preview.innerHTML = body.has_logo
+          ? `<img class="logo-preview" alt="Current organisation logo" src="/branding/logo?v=${encodeURIComponent(body.logo_sha256 || "")}">`
+          : "No logo uploaded.";
+      }
+    } else {
+      result.textContent = body.detail || `Failed (${response.status}).`;
+    }
+    flash(button, response.ok);
+  } catch (error) {
+    result.textContent = "Could not reach the server.";
+    flash(button, false);
+  } finally {
+    setBusy(button, false);
+  }
+}
+
+document.querySelector("#branding-form")?.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const button = form.querySelector('button[type="submit"]');
+  const file = document.querySelector("#logo-file")?.files?.[0];
+  const payload = { organization_name: form.querySelector('[name="organization_name"]').value };
+  if (file) {
+    if (file.size > 1024 * 1024) {
+      result.textContent = "The logo exceeds 1 MB.";
+      flash(button, false);
+      return;
+    }
+    payload.logo_base64 = await readAsBase64(file);
+  }
+  await postBranding(payload, button, "Branding saved.");
+});
+
+document.querySelector("#clear-logo")?.addEventListener("click", async (event) => {
+  if (!window.confirm("Remove the organisation logo?")) return;
+  await postBranding({ clear_logo: true }, event.currentTarget, "Logo removed.");
+});

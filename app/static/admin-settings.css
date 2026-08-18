@@ -63,3 +63,20 @@ button.is-error {
     animation: none;
   }
 }
+
+.logo-preview {
+  max-width: 220px;
+  max-height: 90px;
+  object-fit: contain;
+}
+
+.panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+}
+
+.panel-actions small {
+  opacity: 0.65;
+}

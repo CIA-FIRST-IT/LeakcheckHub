@@ -17,6 +17,8 @@ PUBLIC_PATHS = {
     "/auth/google/login",
     "/auth/google/callback",
     "/auth/local/login",
+    # The organisation logo is rendered on the unauthenticated sign-in page.
+    "/branding/logo",
     "/healthz",
 }
 
@@ -54,3 +56,41 @@ def test_every_non_public_route_has_an_explicit_role_guard() -> None:
     ]
 
     assert unguarded == []
+
+
+def test_the_landing_page_leads_with_google_and_hides_the_password_form() -> None:
+    """The portal is Google-first; the local form is break-glass access, not the default path."""
+
+    import asyncio
+    from unittest.mock import AsyncMock
+
+    from app import branding
+    from app.routers.auth import landing_page
+
+    session_manager = AsyncMock()
+    session_manager.verify = AsyncMock(return_value=None)
+    request = type("R", (), {"cookies": {}})()
+
+    async def run() -> str:
+        original = branding.load
+        branding.load = AsyncMock(  # type: ignore[assignment]
+            return_value=branding.OrganisationBranding(
+                name="CIA FIRST", has_logo=True, logo_sha256="abc"
+            )
+        )
+        try:
+            response = await landing_page(request, db=AsyncMock(), session_manager=session_manager)
+        finally:
+            branding.load = original  # type: ignore[assignment]
+        return response.body.decode()
+
+    markup = asyncio.run(run())
+
+    assert "Sign in with Google to scan your email for leaked credentials." in markup
+    assert 'href="/auth/google/login"' in markup
+    assert "CIA FIRST" in markup
+    assert '<img class="org-logo"' in markup
+    # The password form exists but only inside a dialog behind the corner control.
+    assert 'id="admin-toggle"' in markup
+    assert "<dialog" in markup
+    assert markup.index("google-button") < markup.index('id="local-login"')

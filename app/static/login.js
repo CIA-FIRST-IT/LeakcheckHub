@@ -40,3 +40,17 @@ document.querySelector("#local-login")?.addEventListener("submit", async (event)
     button.disabled = false;
   }
 });
+
+// The local form is deliberately behind a control: this portal is Google-first, and the
+// password path exists for break-glass super-admin access.
+const adminToggle = document.querySelector("#admin-toggle");
+const adminDialog = document.querySelector("#admin-login");
+if (adminToggle && adminDialog instanceof HTMLDialogElement) {
+  adminToggle.addEventListener("click", () => {
+    adminDialog.showModal();
+    adminToggle.setAttribute("aria-expanded", "true");
+    adminDialog.querySelector('[name="username"]')?.focus();
+  });
+  document.querySelector("#admin-close")?.addEventListener("click", () => adminDialog.close());
+  adminDialog.addEventListener("close", () => adminToggle.setAttribute("aria-expanded", "false"));
+}
