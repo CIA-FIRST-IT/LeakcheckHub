@@ -326,7 +326,9 @@ async def settings_page(
     rows = "".join(
         "<tr><td>"
         + html.escape(key.value)
-        + "</td><td>"
+        + '</td><td data-setting-status="'
+        + html.escape(key.value)
+        + '">'
         + ("configured" if configured[key.value] else "blank")
         + "</td></tr>"
         for key in SettingKey
@@ -412,8 +414,8 @@ async def settings_page(
         "Settings",
         content,
         user=current_user,
-        extra_styles=("/static/admin-settings.css?v=5",),
-        extra_scripts=("/static/admin-settings.js?v=5",),
+        extra_styles=("/static/admin-settings.css?v=6",),
+        extra_scripts=("/static/admin-settings.js?v=6",),
     )
     return HTMLResponse(body, headers={"Cache-Control": "no-store"})
 
@@ -452,7 +454,14 @@ async def update_settings(
         target_type="platform_settings",
         meta={"keys": sorted(key.value for key in values)},
     )
-    return JSONResponse({"updated": sorted(key.value for key in values)})
+    # The page renders configured/blank state server-side, so hand back the post-write state and
+    # let the browser update in place rather than making the operator reload to see the effect.
+    return JSONResponse(
+        {
+            "updated": sorted(key.value for key in values),
+            "configured": await store.configured_state(db),
+        }
+    )
 
 
 @router.post("/users", response_model=None)
@@ -686,10 +695,12 @@ def _setting_input(key: SettingKey, *, configured: bool) -> str:
     if key is SettingKey.GOOGLE_WORKSPACE_SERVICE_ACCOUNT_JSON:
         return (
             f'<label>{label}<br><textarea name="{escaped_key}" rows="8" cols="72" '
+            f'data-setting-input="{escaped_key}" '
             f'placeholder="{html.escape(placeholder)}" autocomplete="off"></textarea></label><br>'
         )
     return (
         f'<label>{label} <input type="{input_type}" name="{escaped_key}" '
+        f'data-setting-input="{escaped_key}" '
         f'placeholder="{html.escape(placeholder)}" autocomplete="off"></label><br>'
     )
 

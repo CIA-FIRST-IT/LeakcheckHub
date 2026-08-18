@@ -14,9 +14,11 @@ from pydantic import ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models import User, UserRole, UserSource
+from app.platform_settings import SettingKey
 from app.routers.admin import (
     SettingsUpdate,
     UserCreate,
+    _setting_input,
     _user_rows,
     _workspace_help_dialog,
     update_user,
@@ -212,3 +214,20 @@ def test_user_rows_lock_the_current_user_and_escape_breach_of_markup() -> None:
     assert "<script>" not in markup
     assert "&lt;script&gt;" in markup
     assert 'value="super_admin" selected' in markup
+
+
+def test_status_cells_and_secret_inputs_are_addressable_for_live_refresh() -> None:
+    """Saving updates the page in place, which needs a stable hook per setting."""
+
+    from app.routers.admin import _setting_input
+
+    markup = _setting_input(SettingKey.LEAKCHECK_API_KEY, configured=True)
+
+    assert 'data-setting-input="leakcheck_api_key"' in markup
+    assert "leave blank to keep" in markup
+
+
+def test_a_blank_secret_offers_no_keep_existing_hint() -> None:
+    markup = _setting_input(SettingKey.LEAKCHECK_API_KEY, configured=False)
+
+    assert 'placeholder=""' in markup

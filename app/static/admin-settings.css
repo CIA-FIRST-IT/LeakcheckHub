@@ -16,3 +16,50 @@ dialog code { overflow-wrap: anywhere; }
   #user-form { grid-template-columns: 1fr; }
   #user-form button { margin-bottom: 0; }
 }
+
+/* Save feedback. The button reports progress in place so the operator does not have to hunt
+   for a status line at the bottom of a long form. */
+button.is-busy {
+  cursor: progress;
+  opacity: 0.65;
+}
+
+button.is-ok {
+  animation: save-ok 1.6s ease-out;
+}
+
+button.is-error {
+  animation: save-error 1.6s ease-out;
+}
+
+@keyframes save-ok {
+  0% { box-shadow: 0 0 0 0 rgba(34, 160, 90, 0.55); }
+  35% { box-shadow: 0 0 0 6px rgba(34, 160, 90, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(34, 160, 90, 0); }
+}
+
+@keyframes save-error {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-4px); }
+  40% { transform: translateX(4px); }
+  60% { transform: translateX(-3px); }
+  80% { transform: translateX(2px); }
+}
+
+/* Newly changed status cells, so a save on a long table is visible without scrolling to find it. */
+[data-setting-status].just-changed {
+  animation: status-changed 1.8s ease-out;
+}
+
+@keyframes status-changed {
+  0% { background: rgba(34, 160, 90, 0.35); }
+  100% { background: transparent; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  button.is-ok,
+  button.is-error,
+  [data-setting-status].just-changed {
+    animation: none;
+  }
+}

@@ -137,7 +137,7 @@ async def audit_page(
         "Audit log",
         content,
         user=current_user,
-        extra_styles=("/static/admin-settings.css?v=5",),
+        extra_styles=("/static/admin-settings.css?v=6",),
     )
     return HTMLResponse(body, headers={"Cache-Control": "no-store"})
 

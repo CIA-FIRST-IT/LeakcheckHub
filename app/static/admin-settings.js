@@ -6,25 +6,86 @@ function cookieValue(name) {
   return item ? item.slice(prefix.length) : "";
 }
 
+// Reflect the post-write state the server just returned, so the operator sees the effect of a
+// save without reloading and losing their place on a long form.
+function applyConfiguredState(configured) {
+  if (!configured) return;
+  for (const [key, isSet] of Object.entries(configured)) {
+    const cell = document.querySelector(`[data-setting-status="${CSS.escape(key)}"]`);
+    if (cell && cell.textContent !== (isSet ? "configured" : "blank")) {
+      cell.textContent = isSet ? "configured" : "blank";
+      cell.classList.remove("just-changed");
+      // Restart the highlight animation even if this cell changed a moment ago.
+      void cell.offsetWidth;
+      cell.classList.add("just-changed");
+    }
+    const field = document.querySelector(`[data-setting-input="${CSS.escape(key)}"]`);
+    if (field && field.type === "password") {
+      field.placeholder = isSet ? "configured — leave blank to keep" : "";
+    }
+  }
+}
+
+function setBusy(button, busy, label) {
+  if (!button) return;
+  button.disabled = busy;
+  button.classList.toggle("is-busy", busy);
+  if (busy) {
+    button.dataset.idleLabel = button.dataset.idleLabel || button.textContent;
+    button.textContent = label;
+  } else if (button.dataset.idleLabel) {
+    button.textContent = button.dataset.idleLabel;
+  }
+}
+
+function flash(button, ok) {
+  if (!button) return;
+  const state = ok ? "is-ok" : "is-error";
+  button.classList.add(state);
+  window.setTimeout(() => button.classList.remove(state), 1600);
+}
+
 async function submitJson(form, url) {
-  await fetch("/auth/csrf", { credentials: "same-origin" });
-  const payload = Object.fromEntries(new FormData(form).entries());
-  for (const key of ["leakcheck_rps", "leakcheck_concurrency", "leakcheck_max_response_bytes", "smtp_port"]) {
-    if (payload[key]) payload[key] = Number(payload[key]);
-  }
-  if (payload.google_workspace_domains) {
-    payload.google_workspace_domains = payload.google_workspace_domains.split(",").map((v) => v.trim()).filter(Boolean);
-  }
-  for (const [key, value] of Object.entries(payload)) if (value === "") delete payload[key];
-  const response = await fetch(url, {
-    method: "POST",
-    credentials: "same-origin",
-    headers: { "Content-Type": "application/json", "X-CSRF-Token": cookieValue("__Host-leakcheck-csrf") },
-    body: JSON.stringify(payload),
-  });
+  const button = form.querySelector('button[type="submit"]');
   const result = document.querySelector("#result");
-  result.textContent = response.ok ? "Saved." : `Failed (${response.status}).`;
-  if (response.ok) form.reset();
+  setBusy(button, true, "Saving…");
+  result.textContent = "";
+  try {
+    await fetch("/auth/csrf", { credentials: "same-origin" });
+    const payload = Object.fromEntries(new FormData(form).entries());
+    for (const key of ["leakcheck_rps", "leakcheck_concurrency", "leakcheck_max_response_bytes", "smtp_port", "retention_days"]) {
+      if (payload[key]) payload[key] = Number(payload[key]);
+    }
+    if (payload.google_workspace_domains) {
+      payload.google_workspace_domains = payload.google_workspace_domains.split(",").map((v) => v.trim()).filter(Boolean);
+    }
+    for (const [key, value] of Object.entries(payload)) if (value === "") delete payload[key];
+    const response = await fetch(url, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "Content-Type": "application/json", "X-CSRF-Token": cookieValue("__Host-leakcheck-csrf") },
+      body: JSON.stringify(payload),
+    });
+    const body = await response.json().catch(() => ({}));
+    if (response.ok) {
+      applyConfiguredState(body.configured);
+      const count = Array.isArray(body.updated) ? body.updated.length : 0;
+      result.textContent = count ? `Saved ${count} setting${count === 1 ? "" : "s"}.` : "Saved.";
+      form.reset();
+    } else {
+      // A 422 carries the field that failed validation; show it instead of a bare status code.
+      const detail = Array.isArray(body.detail)
+        ? body.detail.map((d) => d.msg || "").filter(Boolean).join("; ")
+        : body.detail;
+      result.textContent = detail || `Failed (${response.status}).`;
+    }
+    flash(button, response.ok);
+  } catch (error) {
+    result.textContent = "Could not reach the server.";
+    flash(button, false);
+  } finally {
+    setBusy(button, false);
+  }
 }
 
 const result = document.querySelector("#result");
