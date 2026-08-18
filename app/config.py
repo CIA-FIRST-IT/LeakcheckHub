@@ -60,6 +60,7 @@ class Settings(BaseSettings):
     admin_login_ip_lockout_seconds: Annotated[int, Field(ge=60, le=24 * 60 * 60)] = 15 * 60
     data_key: SecretStr
     trusted_hosts: Annotated[tuple[str, ...], NoDecode] = ("localhost", "127.0.0.1")
+    allow_unconfigured_hosts: bool = False
 
     @field_validator("database_url")
     @classmethod
@@ -105,7 +106,9 @@ class Settings(BaseSettings):
     def require_explicit_production_hosts(self) -> Self:
         if self.session_idle_ttl_seconds > self.session_absolute_ttl_seconds:
             raise ValueError("LC_SESSION_IDLE_TTL_SECONDS must not exceed the absolute TTL")
-        if not self.trusted_hosts or "*" in self.trusted_hosts:
+        if not self.trusted_hosts or (
+            "*" in self.trusted_hosts and not self.allow_unconfigured_hosts
+        ):
             raise ValueError("LC_TRUSTED_HOSTS must be a non-empty explicit host allow-list")
         if self.environment is Environment.PRODUCTION and any(
             host in {"localhost", "127.0.0.1"} for host in self.trusted_hosts
@@ -118,4 +121,8 @@ class Settings(BaseSettings):
 def get_settings() -> Settings:
     """Return the singleton process configuration after validation."""
 
+    from app.bootstrap_secrets import bootstrap_secrets_available, runtime_settings
+
+    if bootstrap_secrets_available():
+        return Settings.model_validate(runtime_settings())
     return Settings()

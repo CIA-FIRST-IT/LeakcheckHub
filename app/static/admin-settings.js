@@ -61,3 +61,15 @@ for (const button of document.querySelectorAll("[data-dialog-open]")) {
     if (dialog instanceof HTMLDialogElement) dialog.showModal();
   });
 }
+
+for (const button of document.querySelectorAll("[data-test-alert]")) {
+  button.addEventListener("click", async () => {
+    await fetch("/auth/csrf", { credentials: "same-origin" });
+    const response = await fetch(`/admin/alerts/test/${button.dataset.testAlert}`, {
+      method: "POST",
+      credentials: "same-origin",
+      headers: { "X-CSRF-Token": cookieValue("__Host-leakcheck-csrf") },
+    });
+    result.textContent = response.ok ? "Test alert queued." : "Could not queue test alert.";
+  });
+}

@@ -45,6 +45,8 @@ def test_admin_credentials_are_one_to_one_and_sensitive_columns_are_deferred() -
     assert AdminCredential.__mapper__.attrs.password_hash.raiseload is True
     assert AdminCredential.__mapper__.attrs.totp_secret_enc.deferred is True
     assert AdminCredential.__mapper__.attrs.totp_secret_enc.raiseload is True
+    assert AdminCredential.__table__.c.totp_secret_enc.nullable is True
+    assert AdminCredential.__table__.c.totp_enabled_at.nullable is True
 
 
 def test_sessions_store_only_hash_material_and_expiry_constraints() -> None:

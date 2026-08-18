@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import uuid
 from datetime import UTC, datetime
 from typing import Any, cast
@@ -12,11 +13,13 @@ from sqlalchemy import select
 from sqlalchemy.dialects.postgresql import insert as postgresql_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from app.alerts import fanout_watchlisted_findings
 from app.config import Settings
 from app.ingest import SQLAlchemyIngestRepository
 from app.leakcheck import LeakCheckClient
 from app.models import Scan, ScanStatus, Subject
 from app.normalization import NormalizedSubject
+from app.notifications import enqueue_new_findings
 from app.platform_settings import PlatformSettingError, PlatformSettingsStore, SettingKey
 from app.scans import run_scan
 
@@ -28,6 +31,7 @@ _CLIENT_KEYS = frozenset(
         SettingKey.LEAKCHECK_MAX_RESPONSE_BYTES,
     }
 )
+logger = logging.getLogger(__name__)
 
 
 async def configured_client(request: Request, db: AsyncSession) -> LeakCheckClient:
@@ -73,7 +77,7 @@ async def execute_scan(
             subject.first_scanned_at = started_at
         await db.commit()
         try:
-            await run_scan(
+            summary = await run_scan(
                 client,
                 SQLAlchemyIngestRepository(db),
                 settings,
@@ -81,6 +85,17 @@ async def execute_scan(
                 subject=subject,
                 query=query,
             )
+            try:
+                async with db.begin_nested():
+                    await enqueue_new_findings(
+                        db, subject=subject, finding_ids=summary.new_finding_ids
+                    )
+                    await fanout_watchlisted_findings(
+                        db, subject=subject, finding_ids=summary.new_finding_ids
+                    )
+            except Exception:
+                # Outbox/schema failures must never roll back or misreport a completed scan.
+                logger.warning("post-scan fan-out could not be queued")
         except Exception as exc:
             await db.rollback()
             failed_scan_result = await db.execute(select(Scan).where(Scan.id == scan_id))
