@@ -12,7 +12,7 @@ from urllib.parse import urlsplit
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field, ValidationError, field_validator
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.alerts import enqueue_test_alert
@@ -20,6 +20,7 @@ from app.analyst_ui import page
 from app.audit import audit_event
 from app.auth.authorization import require_role
 from app.auth.local import normalise_admin_email, normalise_display_name
+from app.auth.session import SessionManager
 from app.db import get_db_session
 from app.google_workspace import (
     WorkspaceAPIError,
@@ -27,7 +28,7 @@ from app.google_workspace import (
     configured_workspace_client,
     sync_workspace_users,
 )
-from app.models import AlertSinkName, User, UserRole, UserSource
+from app.models import AlertSinkName, Scan, Session, User, UserRole, UserSource
 from app.platform_settings import (
     SECRET_KEYS,
     PlatformSettingError,
@@ -216,9 +217,26 @@ def _role_options(selected: UserRole) -> str:
     )
 
 
-def _user_rows(users: list[User], *, current_user: User) -> str:
+def _quota_panel(row: object) -> str:
+    """Show the most recent vendor quota observation, which lags one request by design."""
+
+    if row is None:
+        return "<p>No quota has been observed yet. Run a scan to record one.</p>"
+    quota, observed_at = cast(tuple[int, object], row)
+    return (
+        "<p><strong>"
+        + html.escape(f"{quota:,}")
+        + "</strong> units remaining, observed "
+        + html.escape(str(observed_at))
+        + ".</p>"
+        + "<p>The vendor reports quota one request behind, and queries returning no results "
+        + "cost nothing, so treat this as approximate.</p>"
+    )
+
+
+def _user_rows(users: list[User], *, current_user: User, sessions: dict[uuid.UUID, int]) -> str:
     if not users:
-        return '<tr><td colspan="5">No users yet.</td></tr>'
+        return '<tr><td colspan="6">No users yet.</td></tr>'
     rows = []
     for user in users:
         is_self = user.id == current_user.id
@@ -245,7 +263,11 @@ def _user_rows(users: list[User], *, current_user: User) -> str:
             + (" checked" if user.is_active else "")
             + lock
             + "></td>"
-            + '<td><button type="button" data-save-user>Save</button></td></tr>'
+            + "<td>"
+            + str(sessions.get(user.id, 0))
+            + "</td>"
+            + '<td><button type="button" data-save-user>Save</button> '
+            + '<button type="button" data-revoke-sessions>Sign out</button></td></tr>'
         )
     return "".join(rows)
 
@@ -266,6 +288,19 @@ async def settings_page(
     configured = await store.configured_state(db)
     listed = await db.execute(select(User).order_by(User.email))
     users = list(listed.scalars().all())
+    quota_row = await db.execute(
+        select(Scan.quota, Scan.started_at)
+        .where(Scan.quota.is_not(None))
+        .order_by(Scan.started_at.desc())
+        .limit(1)
+    )
+    latest_quota = quota_row.first()
+    session_rows = await db.execute(
+        select(Session.user_id, func.count())
+        .where(Session.revoked_at.is_(None), Session.expires_at > func.now())
+        .group_by(Session.user_id)
+    )
+    active_sessions = {user_id: count for user_id, count in session_rows.all()}
     rows = "".join(
         "<tr><td>"
         + html.escape(key.value)
@@ -311,6 +346,9 @@ async def settings_page(
             '<button type="button" data-test-alert="dfir_iris">Queue DFIR-IRIS test</button>',
             "</section>",
             _workspace_help_dialog(),
+            '<section class="panel"><h2>LeakCheck quota</h2>',
+            _quota_panel(latest_quota),
+            "</section>",
             '<section class="panel"><h2>Configuration status</h2><div class="table-wrap">',
             "<table><thead><tr>",
             f"<th>Setting</th><th>Status</th></tr></thead><tbody>{rows}</tbody></table></div>",
@@ -320,8 +358,9 @@ async def settings_page(
             "<code>python -m app.create_superadmin</code> to add break-glass local ",
             "credentials.</p>",
             '<div class="table-wrap"><table><thead><tr><th>Email</th><th>Name</th>',
-            "<th>Role</th><th>Active</th><th></th></tr></thead><tbody>",
-            _user_rows(users, current_user=current_user),
+            "<th>Role</th><th>Active</th><th>Sessions</th><th></th>",
+            "</tr></thead><tbody>",
+            _user_rows(users, current_user=current_user, sessions=active_sessions),
             "</tbody></table></div></section>",
             '<section class="panel"><h2>Add user</h2><form id="user-form">',
             '<label>Email <input name="email" required></label>',
@@ -337,8 +376,8 @@ async def settings_page(
         "Settings",
         content,
         user=current_user,
-        extra_styles=("/static/admin-settings.css?v=4",),
-        extra_scripts=("/static/admin-settings.js?v=4",),
+        extra_styles=("/static/admin-settings.css?v=5",),
+        extra_scripts=("/static/admin-settings.js?v=5",),
     )
     return HTMLResponse(body, headers={"Cache-Control": "no-store"})
 
@@ -481,6 +520,34 @@ async def update_user(
         meta={"before": before, "after": after},
     )
     return JSONResponse({"id": str(user.id), "role": user.role.value, "is_active": user.is_active})
+
+
+@router.post("/users/{user_id}/sessions/revoke", response_model=None)
+async def revoke_user_sessions(
+    user_id: uuid.UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db_session),  # noqa: B008
+    current_user: User = Depends(_ADMIN_GUARD),  # noqa: B008
+) -> JSONResponse:
+    """Sign an account out of every browser, for offboarding or a suspected compromise."""
+
+    found = await db.execute(select(User).where(User.id == user_id))
+    user = found.scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=404, detail="No such user.")
+    manager = cast(SessionManager, request.app.state.session_manager)
+    revoked = await manager.revoke_all(db, user_id=user.id)
+    await audit_event(
+        db,
+        request,
+        request.app.state.settings,
+        action="admin.sessions_revoked",
+        actor_id=current_user.id,
+        target_type="user",
+        target_id=str(user.id),
+        meta={"revoked": revoked},
+    )
+    return JSONResponse({"revoked": revoked})
 
 
 @router.post("/workspace/sync", response_model=None)

@@ -20,6 +20,7 @@ from app.middleware import SecurityHeadersMiddleware
 from app.platform_settings import PlatformSettingsStore
 from app.routers.admin import router as admin_router
 from app.routers.analyst import router as analyst_router
+from app.routers.audit import router as audit_router
 from app.routers.auth import router as auth_router
 from app.routers.batches import router as batches_router
 from app.routers.findings import router as findings_router
@@ -91,6 +92,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.add_middleware(SecurityHeadersMiddleware, environment=resolved_settings.environment)
     app.include_router(auth_router)
     app.include_router(admin_router)
+    app.include_router(audit_router)
     app.include_router(analyst_router)
     app.include_router(batches_router)
     app.include_router(schedules_router)

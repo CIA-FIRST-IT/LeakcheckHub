@@ -388,7 +388,11 @@ def page(
 ) -> str:
     admin_links = ""
     if user.role is UserRole.SUPER_ADMIN:
-        admin_links = '<a href="/admin/settings">Settings</a><a href="/account/profile">Profile</a>'
+        admin_links = (
+            '<a href="/admin/settings">Settings</a>'
+            '<a href="/admin/audit">Audit</a>'
+            '<a href="/account/profile">Profile</a>'
+        )
     styles = "".join(f'<link rel="stylesheet" href="{_h(path)}">' for path in extra_styles)
     scripts = "".join(f'<script src="{_h(path)}" defer></script>' for path in extra_scripts)
     return "".join(

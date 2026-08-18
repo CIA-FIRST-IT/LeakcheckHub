@@ -206,7 +206,7 @@ def test_user_rows_lock_the_current_user_and_escape_breach_of_markup() -> None:
     other = _user(UserRole.ANALYST, email="other@example.test")
     other.display_name = '"><script>alert(1)</script>'
 
-    markup = _user_rows([actor, other], current_user=actor)
+    markup = _user_rows([actor, other], current_user=actor, sessions={})
 
     assert markup.count("disabled") == 2
     assert "<script>" not in markup

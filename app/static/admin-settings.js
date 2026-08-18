@@ -105,3 +105,26 @@ for (const button of document.querySelectorAll("[data-save-user]")) {
     }
   });
 }
+
+for (const button of document.querySelectorAll("[data-revoke-sessions]")) {
+  button.addEventListener("click", async () => {
+    const userId = button.closest("tr")?.dataset.userId;
+    if (!userId) return;
+    if (!window.confirm("Sign this account out of every browser?")) return;
+    await fetch("/auth/csrf", { credentials: "same-origin" });
+    button.disabled = true;
+    try {
+      const response = await fetch(`/admin/users/${encodeURIComponent(userId)}/sessions/revoke`, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: { "X-CSRF-Token": cookieValue("__Host-leakcheck-csrf") },
+      });
+      const body = await response.json().catch(() => ({}));
+      result.textContent = response.ok
+        ? `Revoked ${body.revoked} session(s).`
+        : body.detail || `Failed (${response.status}).`;
+    } finally {
+      button.disabled = false;
+    }
+  });
+}
