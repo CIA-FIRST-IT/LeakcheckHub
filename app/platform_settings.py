@@ -29,6 +29,7 @@ class SettingKey(StrEnum):
     LEAKCHECK_RPS = "leakcheck_rps"
     LEAKCHECK_CONCURRENCY = "leakcheck_concurrency"
     LEAKCHECK_MAX_RESPONSE_BYTES = "leakcheck_max_response_bytes"
+    SELF_CHECK_COOLDOWN_SECONDS = "self_check_cooldown_seconds"
     GOOGLE_CLIENT_ID = "google_client_id"
     GOOGLE_CLIENT_SECRET = "google_client_secret"  # noqa: S105  # nosec B105
     GOOGLE_REDIRECT_URI = "google_redirect_uri"
@@ -46,6 +47,10 @@ class SettingKey(StrEnum):
     SMTP_USERNAME = "smtp_username"
     SMTP_PASSWORD = "smtp_password"  # noqa: S105  # nosec B105
     SMTP_FROM = "smtp_from"
+    SMTP_SECURITY = "smtp_security"
+    PUBLIC_BASE_URL = "public_base_url"
+    NOTIFY_DRY_RUN = "notify_dry_run"
+    NOTIFY_COOLDOWN_SECONDS = "notify_cooldown_seconds"
     SOC_EMAIL = "soc_email"
 
 

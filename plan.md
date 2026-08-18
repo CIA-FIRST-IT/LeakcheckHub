@@ -360,7 +360,8 @@ serializer's output for cleartext.
 
 Service account with domain-wide delegation, impersonating a dedicated read-only admin. Scopes:
 `admin.directory.user.readonly`, `admin.directory.orgunit.readonly` — nothing else, so the credential
-cannot mutate the directory even if stolen. Key file path from env, mode 600, mounted read-only.
+cannot mutate the directory even if stolen. The complete service-account JSON and delegated admin are
+write-only in the Super Admin UI and encrypted in `platform_settings`; no key file is shipped.
 
 - `list_org_units()` → OU tree for the scan-target picker.
 - `list_users(ou_path, include_suspended=False)` → sync into `users` (email, name, `ou_path`, active).
@@ -432,9 +433,10 @@ Wazuh, and IRIS per that watchlist entry's toggles.
   field, and a test that ingests XSS/template-injection payloads in every breach field and asserts the
   rendered output is inert.
 - Rate limits on login, self-check, and every scan endpoint.
-- Secrets from env only: `LC_DATA_KEY`, `LEAKCHECK_API_KEY`, SMTP creds, service-account path, SIEM
-  tokens. Startup fails loudly if any are missing or if `LC_DATA_KEY` is the dev default.
-  A documented key-rotation procedure with a re-encrypt CLI command.
+- Only database access, session signing, the root `LC_DATA_KEY`, and trusted-host boundary are bootstrap
+  environment configuration. LeakCheck, SMTP, Workspace, and SIEM secrets are write-only in the Super
+  Admin UI and encrypted in `platform_settings`. Startup validates bootstrap material; integration
+  features fail closed while blank. A documented key-rotation procedure includes a re-encrypt CLI.
 - Two DB roles: a migration role that owns the schema, and a runtime role with no DDL and no
   `UPDATE`/`DELETE` on the append-only tables.
 - Structured logging with a redaction filter for password fields, plus a test asserting a known

@@ -12,6 +12,7 @@ from app.config import Settings
 from app.main import create_app
 
 PUBLIC_PATHS = {
+    "/",
     "/auth/csrf",
     "/auth/google/login",
     "/auth/google/callback",

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import base64
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
@@ -17,6 +17,7 @@ from starlette.requests import Request
 from app.analyst_ui import (
     EventView,
     FindingView,
+    _breach_date_cell,
     analyst_dashboard,
     scan_status_fragment,
     subject_history_page,
@@ -41,10 +42,15 @@ from app.models import (
 from app.platform_settings import SettingKey
 from app.routers.analyst import (
     _ANALYST_GUARD,
-    _configured_client,
     _csv_cell,
+    _raw_breach_date,
+    _raw_date,
+    _raw_origin,
+    _raw_url,
+    _raw_value_text,
     reveal_finding_password,
 )
+from app.scan_runtime import configured_client
 
 NOW = datetime(2026, 8, 17, 12, tzinfo=UTC)
 
@@ -89,6 +95,16 @@ def test_dashboard_contains_exactly_six_supported_check_forms_and_local_htmx() -
     assert '"allowScriptTags":false' in body
     assert 'type="password"' in body
     assert "cleartext is sent to LeakCheck" in body
+    assert ">Scan</a>" in body
+    assert '<a href="/analyst/schedules">Schedule</a>' in body
+    assert "Settings" not in body
+    assert "Profile" not in body
+    assert "Notifications" not in body
+    assert "Watchlist" not in body
+
+    admin_body = analyst_dashboard(make_user(UserRole.SUPER_ADMIN), ())
+    assert '<a href="/admin/settings">Settings</a>' in admin_body
+    assert '<a href="/account/profile">Profile</a>' in admin_body
 
 
 def test_pending_scan_uses_polling_and_failure_never_displays_error_detail() -> None:
@@ -120,11 +136,14 @@ def test_vendor_and_identity_xss_payloads_are_rendered_inert() -> None:
         id=uuid.uuid4(),
         source=f"Breach {payload}",
         breach_date=date(2026, 1, 2),
+        breach_date_text="2026-01-02",
+        collected_date=date(2025, 3, 19),
         fields=(payload, "email"),
         email=f"victim+{payload}@example.test",
         username=payload,
         phone=payload,
         origin=f"https://example.test/{payload}",
+        url=f"https://login.example.test/{payload}",
         password_mask=payload,  # noqa: S106 - hostile synthetic vendor-derived display value
         has_password=True,
         remediated_at=None,
@@ -147,6 +166,38 @@ def test_vendor_and_identity_xss_payloads_are_rendered_inert() -> None:
     assert "&lt;img src=x onerror=&quot;alert(1)&quot;&gt;" in body
     assert "&lt;script&gt;alert(1)&lt;/script&gt;" in body
     assert 'class="releaked"' in body
+    assert "02-01-2026" in body
+    assert "19-03-2025" in body
+    assert "17-08-2026 12:00" in body
+    assert 'id="result-search"' in body
+    assert 'class="sort-button"' in body
+    assert 'data-copy-value="victim+' in body
+    assert 'title="Copy url"' in body
+    assert "data-column-toggle checked" in body
+    assert ">Columns</summary>" in body
+    assert 'id="findings-page-size"' in body
+    assert 'value="100"' in body
+    assert 'value="all"' in body
+    assert "data-resize-handle" in body
+    partial = replace(finding, breach_date=None, breach_date_text="2019-04")
+    assert ">04-2019</td>" in _breach_date_cell(partial)
+
+
+def test_list_origin_collected_date_and_raw_search_use_values_only() -> None:
+    raw = {
+        "origin": ["bill24.net"],
+        "collected": "2025-03-19",
+        "nested_key_that_must_not_match": {"email": "person@example.test"},
+    }
+
+    assert _raw_origin(raw["origin"]) == "bill24.net"
+    assert _raw_url({"url": ["https://bill24.net/login"]}) == "https://bill24.net/login"
+    assert _raw_date(raw["collected"]) == date(2025, 3, 19)
+    flattened = _raw_value_text(raw)
+    assert "bill24.net" in flattened
+    assert "person@example.test" in flattened
+    assert "nested_key_that_must_not_match" not in flattened
+    assert _raw_breach_date({"source": {"breach_date": "2019-04"}}, {}) == "2019-04"
 
 
 @pytest.mark.anyio
@@ -234,12 +285,12 @@ async def test_configured_client_is_shared_until_platform_settings_change() -> N
         }
     )
 
-    first = await _configured_client(request, object())  # type: ignore[arg-type]
-    second = await _configured_client(request, object())  # type: ignore[arg-type]
+    first = await configured_client(request, object())  # type: ignore[arg-type]
+    second = await configured_client(request, object())  # type: ignore[arg-type]
     assert first is second
 
     store.values = {SettingKey.LEAKCHECK_API_KEY: "rotated-fixture-key"}
-    rotated = await _configured_client(request, object())  # type: ignore[arg-type]
+    rotated = await configured_client(request, object())  # type: ignore[arg-type]
     assert rotated is not first
 
 
