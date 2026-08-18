@@ -68,7 +68,8 @@ bootstrap-secret volume while retaining the database volume makes the existing d
 ## 4. Put HTTPS in front of the service
 
 Production cookies require HTTPS. Route the public hostname through the existing reverse proxy to
-port `8000` on the Portainer host. The zero-input stack accepts the hostname supplied by that proxy,
+port `8800` on the Portainer host (port 8000 is Portainer's own Edge-agent tunnel port; set
+`LEAKCHECK_HTTP_PORT` in the stack to publish elsewhere). The zero-input stack accepts the hostname supplied by that proxy,
 so the proxy should enforce the intended public hostname. Do not expose PostgreSQL; only the web port
 is published.
 

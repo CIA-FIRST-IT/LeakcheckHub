@@ -73,8 +73,10 @@ services:
       timeout: 5s
       retries: 5
       start_period: 30s
+    # Port 8000 is Portainer's own Edge-agent tunnel port, so it is unavailable on a host that
+    # runs Portainer itself. Override LEAKCHECK_HTTP_PORT in the stack if 8800 is also taken.
     ports:
-      - "8000:8000"
+      - "${LEAKCHECK_HTTP_PORT:-8800}:8000"
     networks:
       - application
       - database
