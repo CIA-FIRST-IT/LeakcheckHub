@@ -44,7 +44,9 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
-      start_period: 15s
+      # A redeploy kills the container rather than shutting it down, so the next start replays
+      # WAL before accepting connections. Allow for that rather than reporting it as unhealthy.
+      start_period: 60s
     read_only: true
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=64m

@@ -7,6 +7,7 @@ import os
 import secrets
 import stat
 import sys
+import time
 from pathlib import Path
 from typing import Final
 
@@ -15,6 +16,8 @@ BOOTSTRAP_SECRET_DIR: Final = Path("/run/leakcheck-bootstrap")
 # reverse proxy terminates TLS in front of it.
 _BIND_HOST: Final = "0.0.0.0"  # noqa: S104  # nosec B104
 _BIND_PORT: Final = 8000
+_DATABASE_WAIT_SECONDS: Final = 180.0
+_DATABASE_RETRY_SECONDS: Final = 3.0
 _SECRET_FILES: Final = {
     "postgres_password": "postgres-password",
     "migrator_password": "migrator-password",
@@ -152,11 +155,61 @@ def _run_migration(role: str) -> None:
             os.environ.pop(key, None)
 
 
+def _wait_for_database(directory: Path = BOOTSTRAP_SECRET_DIR) -> None:
+    """Block until PostgreSQL answers, instead of dying on the first connection attempt.
+
+    Compose only starts this container once postgres reports healthy, but a restarting database,
+    a slow crash recovery, or DNS that has not yet caught up all produce a transient failure. The
+    previous behaviour was to raise immediately, which turned a few seconds of unavailability into
+    a crash loop and an unreadable stack trace.
+    """
+
+    import asyncio
+    import socket
+
+    from sqlalchemy.exc import SQLAlchemyError
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    values = load_bootstrap_secrets(directory)
+    url = f"postgresql+asyncpg://postgres:{values['postgres_password']}@postgres:5432/leakcheck"
+
+    async def probe() -> None:
+        engine = create_async_engine(url)
+        try:
+            async with engine.connect():
+                return
+        finally:
+            await engine.dispose()
+
+    deadline = time.monotonic() + _DATABASE_WAIT_SECONDS
+    attempt = 0
+    while True:
+        attempt += 1
+        try:
+            asyncio.run(probe())
+            if attempt > 1:
+                print(f"database reachable after {attempt} attempts", flush=True)
+            return
+        except (SQLAlchemyError, OSError, socket.gaierror) as exc:
+            if time.monotonic() >= deadline:
+                raise SystemExit(
+                    f"database unreachable after {_DATABASE_WAIT_SECONDS}s: "
+                    f"{type(exc).__name__}. Check the postgres container's log."
+                ) from exc
+            print(
+                f"waiting for the database ({type(exc).__name__}); retrying in "
+                f"{_DATABASE_RETRY_SECONDS}s",
+                flush=True,
+            )
+            time.sleep(_DATABASE_RETRY_SECONDS)
+
+
 def _serve() -> None:
     """Bring the schema up to date, then serve the application in this same container."""
 
     import uvicorn
 
+    _wait_for_database()
     _run_migration("bootstrap")
     _run_migration("migrate")
     uvicorn.run("app.main:create_app", factory=True, host=_BIND_HOST, port=_BIND_PORT)

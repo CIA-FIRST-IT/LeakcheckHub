@@ -108,3 +108,47 @@ def test_unwritable_secret_directory_reports_the_remedy(tmp_path: Path) -> None:
             initialize_bootstrap_secrets(directory)
     finally:
         directory.chmod(0o755)
+
+
+def test_the_server_waits_for_a_late_database_instead_of_crashing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A restarting or slow database must delay startup, not turn into a crash loop."""
+
+    import app.bootstrap_secrets as module
+
+    initialize_bootstrap_secrets(tmp_path)
+    attempts = {"n": 0}
+
+    def flaky(coro: object) -> None:
+        coro.close()  # type: ignore[attr-defined]
+        attempts["n"] += 1
+        if attempts["n"] < 3:
+            raise OSError("Temporary failure in name resolution")
+
+    monkeypatch.setattr("asyncio.run", flaky)
+    monkeypatch.setattr(module.time, "sleep", lambda _: None)
+
+    module._wait_for_database(tmp_path)
+
+    assert attempts["n"] == 3
+
+
+def test_an_unreachable_database_eventually_gives_a_readable_reason(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import app.bootstrap_secrets as module
+
+    initialize_bootstrap_secrets(tmp_path)
+
+    def always_fail(coro: object) -> None:
+        coro.close()  # type: ignore[attr-defined]
+        raise OSError("Temporary failure in name resolution")
+
+    clock = iter([0.0, 0.0, 1e9, 1e9])
+    monkeypatch.setattr("asyncio.run", always_fail)
+    monkeypatch.setattr(module.time, "sleep", lambda _: None)
+    monkeypatch.setattr(module.time, "monotonic", lambda: next(clock))
+
+    with pytest.raises(SystemExit, match="postgres container"):
+        module._wait_for_database(tmp_path)
