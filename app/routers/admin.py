@@ -191,14 +191,63 @@ class SettingsUpdate(BaseModel):
 class UserCreate(BaseModel):
     email: str = Field(min_length=3, max_length=255)
     display_name: str = Field(min_length=1, max_length=255)
+    # A super-admin may grant the role from this screen. The account still has no local password
+    # or TOTP: it authenticates through Google. Provision local credentials with
+    # `python -m app.create_superadmin` when a break-glass login is wanted as well.
     role: UserRole = UserRole.USER
 
-    @field_validator("role")
-    @classmethod
-    def no_web_superadmins(cls, value: UserRole) -> UserRole:
-        if value is UserRole.SUPER_ADMIN:
-            raise ValueError("super-admin accounts must be provisioned with create-superadmin")
-        return value
+
+class UserUpdate(BaseModel):
+    display_name: str | None = Field(default=None, min_length=1, max_length=255)
+    role: UserRole | None = None
+    is_active: bool | None = None
+
+
+def _role_options(selected: UserRole) -> str:
+    labels = {
+        UserRole.USER: "User",
+        UserRole.ANALYST: "Analyst",
+        UserRole.SUPER_ADMIN: "Super admin",
+    }
+    return "".join(
+        f'<option value="{role.value}"{" selected" if role is selected else ""}>'
+        f"{labels[role]}</option>"
+        for role in UserRole
+    )
+
+
+def _user_rows(users: list[User], *, current_user: User) -> str:
+    if not users:
+        return '<tr><td colspan="5">No users yet.</td></tr>'
+    rows = []
+    for user in users:
+        is_self = user.id == current_user.id
+        self_note = ' <span class="badge">you</span>' if is_self else ""
+        # A super-admin must not strip their own access; the server rejects it either way.
+        lock = " disabled" if is_self else ""
+        rows.append(
+            '<tr data-user-id="'
+            + html.escape(str(user.id))
+            + '">'
+            + "<td>"
+            + html.escape(user.email)
+            + self_note
+            + "</td>"
+            + '<td><input name="display_name" value="'
+            + html.escape(user.display_name)
+            + '"></td>'
+            + '<td><select name="role"'
+            + lock
+            + ">"
+            + _role_options(user.role)
+            + "</select></td>"
+            + '<td><input type="checkbox" name="is_active"'
+            + (" checked" if user.is_active else "")
+            + lock
+            + "></td>"
+            + '<td><button type="button" data-save-user>Save</button></td></tr>'
+        )
+    return "".join(rows)
 
 
 def get_platform_store(request: Request) -> PlatformSettingsStore:
@@ -215,6 +264,8 @@ async def settings_page(
     """Render a blank-safe configuration page that never returns stored secret values."""
 
     configured = await store.configured_state(db)
+    listed = await db.execute(select(User).order_by(User.email))
+    users = list(listed.scalars().all())
     rows = "".join(
         "<tr><td>"
         + html.escape(key.value)
@@ -263,11 +314,21 @@ async def settings_page(
             '<section class="panel"><h2>Configuration status</h2><div class="table-wrap">',
             "<table><thead><tr>",
             f"<th>Setting</th><th>Status</th></tr></thead><tbody>{rows}</tbody></table></div>",
-            '</section><section class="panel"><h2>Add user</h2><form id="user-form">',
+            '</section><section class="panel"><h2>Users</h2>',
+            "<p>Change a name, role, or access, then save the row. Granting super-admin here does ",
+            "not create a local password or TOTP; that account signs in through Google. Use ",
+            "<code>python -m app.create_superadmin</code> to add break-glass local ",
+            "credentials.</p>",
+            '<div class="table-wrap"><table><thead><tr><th>Email</th><th>Name</th>',
+            "<th>Role</th><th>Active</th><th></th></tr></thead><tbody>",
+            _user_rows(users, current_user=current_user),
+            "</tbody></table></div></section>",
+            '<section class="panel"><h2>Add user</h2><form id="user-form">',
             '<label>Email <input name="email" required></label>',
             '<label>Name <input name="display_name" required></label>',
             '<label>Role <select name="role"><option value="user">User</option>',
-            '<option value="analyst">Analyst</option></select></label>',
+            '<option value="analyst">Analyst</option>',
+            '<option value="super_admin">Super admin</option></select></label>',
             '<button type="submit">Add user</button></form>',
             '<output id="result"></output></section>',
         )
@@ -276,8 +337,8 @@ async def settings_page(
         "Settings",
         content,
         user=current_user,
-        extra_styles=("/static/admin-settings.css?v=3",),
-        extra_scripts=("/static/admin-settings.js?v=3",),
+        extra_styles=("/static/admin-settings.css?v=4",),
+        extra_scripts=("/static/admin-settings.js?v=4",),
     )
     return HTMLResponse(body, headers={"Cache-Control": "no-store"})
 
@@ -355,6 +416,71 @@ async def create_user(
     return JSONResponse(
         {"id": str(user.id), "email": user.email, "role": user.role.value}, status_code=201
     )
+
+
+async def _remaining_super_admins(db: AsyncSession, *, excluding: uuid.UUID) -> int:
+    """Count the active super-admins that would survive a change to ``excluding``."""
+
+    rows = await db.execute(
+        select(User.id).where(
+            User.role == UserRole.SUPER_ADMIN,
+            User.is_active.is_(True),
+            User.id != excluding,
+        )
+    )
+    return len(rows.scalars().all())
+
+
+@router.post("/users/{user_id}", response_model=None)
+async def update_user(
+    user_id: uuid.UUID,
+    request: Request,
+    db: AsyncSession = Depends(get_db_session),  # noqa: B008
+    current_user: User = Depends(_ADMIN_GUARD),  # noqa: B008
+) -> JSONResponse:
+    """Change an existing user's name, role, or active state, including granting super-admin."""
+
+    payload = UserUpdate.model_validate(await _json_body(request))
+    found = await db.execute(select(User).where(User.id == user_id).with_for_update())
+    user = found.scalar_one_or_none()
+    if user is None:
+        raise HTTPException(status_code=404, detail="No such user.")
+
+    before = {"display_name": user.display_name, "role": user.role.value, "active": user.is_active}
+    demoted = payload.role is not None and payload.role is not UserRole.SUPER_ADMIN
+    deactivated = payload.is_active is False
+    if user.id == current_user.id and (demoted or deactivated):
+        # Removing your own access mid-session is the fastest route to an unadministrable portal.
+        raise HTTPException(
+            status_code=409,
+            detail="You cannot remove your own super-admin access. Ask another super-admin.",
+        )
+    if user.role is UserRole.SUPER_ADMIN and (demoted or deactivated):
+        if await _remaining_super_admins(db, excluding=user.id) == 0:
+            raise HTTPException(
+                status_code=409,
+                detail="This is the last active super-admin. Grant the role to someone else first.",
+            )
+
+    if payload.display_name is not None:
+        user.display_name = normalise_display_name(payload.display_name)
+    if payload.role is not None:
+        user.role = payload.role
+    if payload.is_active is not None:
+        user.is_active = payload.is_active
+    await db.flush()
+    after = {"display_name": user.display_name, "role": user.role.value, "active": user.is_active}
+    await audit_event(
+        db,
+        request,
+        request.app.state.settings,
+        action="admin.user_updated",
+        actor_id=current_user.id,
+        target_type="user",
+        target_id=str(user.id),
+        meta={"before": before, "after": after},
+    )
+    return JSONResponse({"id": str(user.id), "role": user.role.value, "is_active": user.is_active})
 
 
 @router.post("/workspace/sync", response_model=None)
