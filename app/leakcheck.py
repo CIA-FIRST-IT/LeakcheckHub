@@ -358,7 +358,7 @@ def _parse_record(value: object) -> LeakRecord:
         email=_optional_string(value.get("email")),
         username=_optional_string(value.get("username")),
         phone=_optional_string(value.get("phone")),
-        origin=_optional_string(value.get("origin")),
+        origin=_optional_origin(value.get("origin")),
         password=_optional_string(value.get("password")),
         fields=fields,
         source=BreachSource(
@@ -374,6 +374,17 @@ def _parse_record(value: object) -> LeakRecord:
 
 def _optional_string(value: object) -> str | None:
     return value if isinstance(value, str) else None
+
+
+def _optional_origin(value: object) -> str | None:
+    """Accept both legacy scalar origins and LeakCheck's list-valued origin field."""
+
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list):
+        origins = tuple(item.strip() for item in value if isinstance(item, str) and item.strip())
+        return ", ".join(origins) or None
+    return None
 
 
 def _optional_bool(value: object) -> bool | None:

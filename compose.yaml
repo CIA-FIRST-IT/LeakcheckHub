@@ -43,7 +43,7 @@ services:
 
   bootstrap:
     build: .
-    command: ["alembic", "upgrade", "0001_bootstrap_roles"]
+    command: ["python", "-m", "app.bootstrap_database"]
     environment:
       LC_MIGRATION_DATABASE_URL: postgresql+asyncpg://postgres:${LC_POSTGRES_PASSWORD:?set LC_POSTGRES_PASSWORD in .env}@postgres:5432/leakcheck
       LC_MIGRATOR_DB_PASSWORD: ${LC_MIGRATOR_DB_PASSWORD:?set LC_MIGRATOR_DB_PASSWORD in .env}
@@ -107,6 +107,20 @@ services:
       migrate:
         condition: service_completed_successfully
     <<: *app-security
+    networks:
+      - internal
+
+  mailhog:
+    image: mailhog/mailhog:v1.0.1
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    ports:
+      - "127.0.0.1:8025:8025"
     networks:
       - internal
 

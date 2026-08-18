@@ -15,12 +15,25 @@ from pydantic import BaseModel, Field, ValidationError, field_validator
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.alerts import enqueue_test_alert
+from app.analyst_ui import page
 from app.audit import audit_event
 from app.auth.authorization import require_role
 from app.auth.local import normalise_admin_email, normalise_display_name
 from app.db import get_db_session
-from app.models import User, UserRole, UserSource
-from app.platform_settings import SECRET_KEYS, PlatformSettingsStore, SettingKey
+from app.google_workspace import (
+    WorkspaceAPIError,
+    WorkspaceConfigurationError,
+    configured_workspace_client,
+    sync_workspace_users,
+)
+from app.models import AlertSinkName, User, UserRole, UserSource
+from app.platform_settings import (
+    SECRET_KEYS,
+    PlatformSettingError,
+    PlatformSettingsStore,
+    SettingKey,
+)
 
 _ADMIN_GUARD = require_role(UserRole.SUPER_ADMIN)
 _MAX_BODY_BYTES = 32 * 1024
@@ -41,6 +54,10 @@ _SETTING_LABELS = {
     SettingKey.GOOGLE_WORKSPACE_SERVICE_ACCOUNT_JSON: "Service-account JSON",
     SettingKey.GOOGLE_WORKSPACE_DELEGATED_ADMIN: "Delegated Workspace admin email",
     SettingKey.GOOGLE_WORKSPACE_DOMAINS: "Allowed Workspace domains (comma-separated)",
+    SettingKey.SMTP_SECURITY: "SMTP transport security",
+    SettingKey.PUBLIC_BASE_URL: "Public portal base URL (HTTPS)",
+    SettingKey.NOTIFY_DRY_RUN: "Notification dry-run",
+    SettingKey.NOTIFY_COOLDOWN_SECONDS: "Per-user notification cooldown (seconds)",
 }
 
 router = APIRouter(prefix="/admin", dependencies=[Depends(_ADMIN_GUARD)], include_in_schema=False)
@@ -75,9 +92,13 @@ class SettingsUpdate(BaseModel):
     smtp_username: str | None = Field(default=None, max_length=512)
     smtp_password: str | None = Field(default=None, max_length=2048)
     smtp_from: str | None = Field(default=None, max_length=320)
+    smtp_security: str | None = Field(default=None, pattern="^(starttls|tls)$")
+    public_base_url: str | None = Field(default=None, max_length=2048)
+    notify_dry_run: bool | None = None
+    notify_cooldown_seconds: Annotated[int | None, Field(default=None, ge=0, le=30 * 24 * 60 * 60)]
     soc_email: str | None = Field(default=None, max_length=320)
 
-    @field_validator("google_redirect_uri", "wazuh_url", "dfir_iris_url")
+    @field_validator("google_redirect_uri", "wazuh_url", "dfir_iris_url", "public_base_url")
     @classmethod
     def validate_url(cls, value: str | None) -> str | None:
         if value is None or value == "":
@@ -187,6 +208,7 @@ def get_platform_store(request: Request) -> PlatformSettingsStore:
 @router.get("/settings", response_model=None)
 async def settings_page(
     request: Request,
+    current_user: User = Depends(_ADMIN_GUARD),  # noqa: B008
     db: AsyncSession = Depends(get_db_session),  # noqa: B008
     store: PlatformSettingsStore = Depends(get_platform_store),  # noqa: B008
 ) -> HTMLResponse:
@@ -213,36 +235,49 @@ async def settings_page(
         for key in SettingKey
         if key not in _GOOGLE_OIDC_KEYS and key not in _GOOGLE_WORKSPACE_KEYS
     )
-    body = "".join(
+    content = "".join(
         (
-            '<!doctype html><html><head><meta charset="utf-8">',
-            "<title>LeakCheck settings</title>",
-            '<link rel="stylesheet" href="/static/admin-settings.css">',
-            "</head><body><main>",
-            "<h1>Platform settings</h1>",
-            "<p>Secrets are encrypted at rest and are never displayed.</p>",
-            '<form id="settings-form"><h2>Google sign-in</h2>',
+            '<section class="hero compact"><p class="eyebrow">Administration</p>',
+            "<h1>Settings</h1><p>Configure platform integrations and user access. ",
+            "Secrets are encrypted at rest and are never displayed.</p></section>",
+            '<form id="settings-form" class="settings-stack"><section class="panel">',
+            "<h2>Google sign-in</h2>",
             oidc_fields,
-            '<h2>Google Workspace OU sync <button type="button" class="help-button" ',
+            '</section><section class="panel"><h2>Google Workspace OU sync ',
+            '<button type="button" class="help-button" ',
             'aria-label="How to configure Google Workspace OU sync" ',
             'data-dialog-open="google-workspace-help">?</button></h2>',
             "<p>Read-only Directory access using domain-wide delegation.</p>",
             workspace_fields,
-            "<h2>Other integrations</h2>",
+            '<p><button type="button" id="workspace-sync">Sync Workspace users now</button></p>',
+            '</section><section class="panel"><h2>Other integrations</h2>',
             other_fields,
-            '<button type="submit">Save settings</button></form>',
+            '<button type="submit">Save settings</button></section></form>',
+            '<section class="panel"><h2>SIEM test alerts</h2>',
+            "<p>These queue a contract-neutral test event. Delivery remains inactive until ",
+            "the corresponding live API contract has been verified.</p>",
+            '<button type="button" data-test-alert="wazuh">Queue Wazuh test</button>',
+            '<button type="button" data-test-alert="dfir_iris">Queue DFIR-IRIS test</button>',
+            "</section>",
             _workspace_help_dialog(),
-            "<h2>Configuration status</h2><table><thead><tr>",
-            f"<th>Setting</th><th>Status</th></tr></thead><tbody>{rows}</tbody></table>",
-            '<h2>Add user</h2><form id="user-form">',
+            '<section class="panel"><h2>Configuration status</h2><div class="table-wrap">',
+            "<table><thead><tr>",
+            f"<th>Setting</th><th>Status</th></tr></thead><tbody>{rows}</tbody></table></div>",
+            '</section><section class="panel"><h2>Add user</h2><form id="user-form">',
             '<label>Email <input name="email" required></label>',
             '<label>Name <input name="display_name" required></label>',
             '<label>Role <select name="role"><option value="user">User</option>',
             '<option value="analyst">Analyst</option></select></label>',
             '<button type="submit">Add user</button></form>',
-            '<output id="result"></output></main>',
-            '<script src="/static/admin-settings.js" defer></script></body></html>',
+            '<output id="result"></output></section>',
         )
+    )
+    body = page(
+        "Settings",
+        content,
+        user=current_user,
+        extra_styles=("/static/admin-settings.css?v=3",),
+        extra_scripts=("/static/admin-settings.js?v=3",),
     )
     return HTMLResponse(body, headers={"Cache-Control": "no-store"})
 
@@ -322,6 +357,68 @@ async def create_user(
     )
 
 
+@router.post("/workspace/sync", response_model=None)
+async def sync_workspace(
+    request: Request,
+    db: AsyncSession = Depends(get_db_session),  # noqa: B008
+    store: PlatformSettingsStore = Depends(get_platform_store),  # noqa: B008
+    current_user: User = Depends(_ADMIN_GUARD),  # noqa: B008
+) -> JSONResponse:
+    """Run a complete additive Directory sync; only sync-owned departed users are disabled."""
+
+    client = None
+    try:
+        client = await configured_workspace_client(db, store)
+        users = await client.list_users()
+    except (PlatformSettingError, WorkspaceAPIError, WorkspaceConfigurationError) as exc:
+        await audit_event(
+            db,
+            request,
+            request.app.state.settings,
+            action="admin.workspace_sync_failed",
+            actor_id=current_user.id,
+            target_type="workspace",
+            meta={"reason": type(exc).__name__},
+        )
+        raise HTTPException(status_code=502, detail="Workspace sync failed.") from exc
+    finally:
+        if client is not None:
+            await client.aclose()
+    result = await sync_workspace_users(db, users)
+    await audit_event(
+        db,
+        request,
+        request.app.state.settings,
+        action="admin.workspace_synced",
+        actor_id=current_user.id,
+        target_type="workspace",
+        meta={"seen": result.seen, "deactivated": result.deactivated},
+    )
+    return JSONResponse({"seen": result.seen, "deactivated": result.deactivated})
+
+
+@router.post("/alerts/test/{sink}", response_model=None)
+async def queue_test_alert(
+    sink: AlertSinkName,
+    request: Request,
+    current_user: User = Depends(_ADMIN_GUARD),  # noqa: B008
+    db: AsyncSession = Depends(get_db_session),  # noqa: B008
+) -> JSONResponse:
+    """Queue a safe internal test envelope without assuming a remote contract."""
+
+    await enqueue_test_alert(db, sink)
+    await audit_event(
+        db,
+        request,
+        request.app.state.settings,
+        action="admin.test_alert_queued",
+        actor_id=current_user.id,
+        target_type="alert_sink",
+        target_id=sink.value,
+    )
+    return JSONResponse({"queued": sink.value}, status_code=202)
+
+
 async def _json_body(request: Request) -> object:
     content_length = request.headers.get("content-length")
     if content_length is not None:
@@ -345,6 +442,18 @@ def _setting_input(key: SettingKey, *, configured: bool) -> str:
     placeholder = "configured — leave blank to keep" if secret and configured else ""
     escaped_key = html.escape(key.value)
     label = html.escape(_SETTING_LABELS.get(key, key.value.replace("_", " ").title()))
+    if key is SettingKey.NOTIFY_DRY_RUN:
+        return (
+            f'<label>{label} <select name="{escaped_key}">'
+            '<option value="true" selected>Enabled (safe default)</option>'
+            '<option value="false">Disabled — send mail</option></select></label><br>'
+        )
+    if key is SettingKey.SMTP_SECURITY:
+        return (
+            f'<label>{label} <select name="{escaped_key}">'
+            '<option value="starttls">STARTTLS</option>'
+            '<option value="tls">Implicit TLS</option></select></label><br>'
+        )
     if key is SettingKey.GOOGLE_WORKSPACE_SERVICE_ACCOUNT_JSON:
         return (
             f'<label>{label}<br><textarea name="{escaped_key}" rows="8" cols="72" '
