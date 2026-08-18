@@ -1,5 +1,11 @@
-.env
+.env*
+!.env.example
 .claude/
+.agents/
+.codex/
+.idea/
+.vscode/
+.DS_Store
 .venv/
 __pycache__/
 *.py[cod]
@@ -13,3 +19,19 @@ bandit-report.json
 semgrep-report.json
 pip-audit-report.json
 postgres-data/
+*.log
+
+# Internal planning, live API research, and local operator notes.
+/API-NOTES.md
+/TODO.md
+/plan.md
+/notes/
+*.local.md
+
+# Credentials and deployment secrets must be entered through the platform or secret store.
+/secrets/
+credentials*.json
+service-account*.json
+*.pem
+*.key
+*.p12

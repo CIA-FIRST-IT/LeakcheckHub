@@ -1,6 +1,6 @@
 # LeakCheck SOC Portal
 
-An internal, self-hosted portal for controlled use of the LeakCheck Enterprise API. The project is
+An internal, self-hosted portal for controlled use of the LeakCheck API. The project is
 deliberately small: FastAPI, PostgreSQL, server-rendered UI, and no JavaScript build chain.
 
 ## Local start

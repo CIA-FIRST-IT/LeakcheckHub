@@ -1,5 +1,10 @@
 .git
-.env
+.env*
+.agents
+.codex
+.claude
+.idea
+.vscode
 .venv
 __pycache__
 .mypy_cache
@@ -11,4 +16,12 @@ tests
 TODO.md
 plan.md
 API-NOTES.md
-
+notes
+*.local.md
+*.log
+secrets
+credentials*.json
+service-account*.json
+*.pem
+*.key
+*.p12
