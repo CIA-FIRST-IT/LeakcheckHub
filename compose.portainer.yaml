@@ -12,13 +12,16 @@ x-app-service: &app-service
     - ALL
 
 services:
-  secrets-init:
+  # One-shot. Generates any missing bootstrap secret and exits. Runs as the unprivileged image
+  # user: the volume inherits app:app ownership from the image, so no privileged container is
+  # needed. Attached to the internal network only, which has no route off the host.
+  init:
     <<: *app-service
-    user: "0:0"
     command: ["python", "-m", "app.bootstrap_secrets", "init"]
     volumes:
       - bootstrap-secrets:/run/leakcheck-bootstrap
-    network_mode: none
+    networks:
+      - database
 
   postgres:
     image: postgres:16.8-bookworm
@@ -32,7 +35,7 @@ services:
       - postgres-data:/var/lib/postgresql/data
       - bootstrap-secrets:/run/leakcheck-bootstrap:ro
     depends_on:
-      secrets-init:
+      init:
         condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d leakcheck"]
@@ -55,57 +58,25 @@ services:
     networks:
       - database
 
-  bootstrap:
+  # Creates the least-privilege database roles, upgrades the schema, then serves the application
+  # and drains the batch queue in-process.
+  web:
     <<: *app-service
-    command: ["python", "-m", "app.bootstrap_secrets", "bootstrap"]
+    command: ["python", "-m", "app.bootstrap_secrets", "serve"]
+    restart: unless-stopped
     volumes:
       - bootstrap-secrets:/run/leakcheck-bootstrap:ro
     depends_on:
       postgres:
         condition: service_healthy
-    networks:
-      - database
-
-  migrate:
-    <<: *app-service
-    command: ["python", "-m", "app.bootstrap_secrets", "migrate"]
-    volumes:
-      - bootstrap-secrets:/run/leakcheck-bootstrap:ro
-    depends_on:
-      bootstrap:
-        condition: service_completed_successfully
-    networks:
-      - database
-
-  web:
-    <<: *app-service
-    restart: unless-stopped
-    volumes:
-      - bootstrap-secrets:/run/leakcheck-bootstrap:ro
-    depends_on:
-      migrate:
-        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/healthz', timeout=3)"]
       interval: 15s
       timeout: 5s
       retries: 5
-      start_period: 10s
+      start_period: 30s
     ports:
       - "8000:8000"
-    networks:
-      - application
-      - database
-
-  worker:
-    <<: *app-service
-    command: ["python", "-m", "app.worker"]
-    restart: unless-stopped
-    volumes:
-      - bootstrap-secrets:/run/leakcheck-bootstrap:ro
-    depends_on:
-      migrate:
-        condition: service_completed_successfully
     networks:
       - application
       - database
