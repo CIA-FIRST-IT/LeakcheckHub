@@ -96,3 +96,15 @@ def test_runtime_settings_keep_the_worker_off_by_default() -> None:
         data_key="k" * 43,
     )
     assert settings.run_inprocess_worker is False
+
+
+def test_unwritable_secret_directory_reports_the_remedy(tmp_path: Path) -> None:
+    """An unwritable volume must name the fix instead of failing on an opaque open()."""
+
+    directory = tmp_path / "bootstrap"
+    directory.mkdir(mode=0o555)
+    try:
+        with pytest.raises(RuntimeError, match="not writable"):
+            initialize_bootstrap_secrets(directory)
+    finally:
+        directory.chmod(0o755)

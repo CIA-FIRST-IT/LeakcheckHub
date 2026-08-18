@@ -48,7 +48,17 @@ def initialize_bootstrap_secrets(directory: Path = BOOTSTRAP_SECRET_DIR) -> None
     """Create missing secrets atomically and leave every existing value unchanged."""
 
     directory.mkdir(mode=0o755, parents=True, exist_ok=True)
-    directory.chmod(0o755)
+    if not os.access(directory, os.W_OK):
+        # A pre-existing volume created by an older image is owned by root, so the unprivileged
+        # runtime user cannot populate it. Say so plainly rather than failing on the first open().
+        msg = (
+            f"bootstrap secret directory is not writable by uid {os.getuid()}: {directory}. "
+            "Remove the bootstrap-secrets volume so it is recreated with the correct ownership. "
+            "This is safe only while no secrets have been generated yet."
+        )
+        raise RuntimeError(msg)
+    if directory.stat().st_uid == os.getuid():
+        directory.chmod(0o755)
     for name in _SECRET_FILES:
         path = _secret_path(directory, name)
         try:
