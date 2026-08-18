@@ -134,6 +134,9 @@ def test_user_dashboard_escapes_breach_data_and_never_contains_known_cleartext()
     assert 'href="/analyst"' not in body
     assert 'action="/portal/check"' in body
     assert 'name="email"' not in body
+    assert "person@example.test" in body
+    assert ">Scan now</button>" in body
+    assert '<nav aria-label="Primary">' not in body
 
 
 @pytest.mark.anyio

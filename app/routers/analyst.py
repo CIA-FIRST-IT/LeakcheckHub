@@ -279,7 +279,11 @@ async def reveal_finding_password(
     from html import escape
 
     return _html(
-        '<code class="revealed-password">' + escape(password, quote=True) + "</code>",
+        '<button type="button" class="revealed-password copy-value" data-copy-value="'
+        + escape(password, quote=True)
+        + '" title="Copy password">'
+        + escape(password, quote=True)
+        + "</button>",
         headers={"Pragma": "no-cache"},
     )
 
@@ -348,10 +352,12 @@ async def export_subject_csv(
         (
             "source",
             "breach_date",
+            "collected_date",
             "email",
             "username",
             "phone",
             "origin",
+            "url",
             "fields",
             "password_mask",
             "state",
@@ -366,11 +372,15 @@ async def export_subject_csv(
                 _csv_cell(value)
                 for value in (
                     item.source,
-                    item.breach_date.isoformat() if item.breach_date else "",
+                    item.breach_date.isoformat()
+                    if item.breach_date
+                    else item.breach_date_text or "",
+                    item.collected_date.isoformat() if item.collected_date else "",
                     item.email or "",
                     item.username or "",
                     item.phone or "",
                     item.origin or "",
+                    item.url or "",
                     ", ".join(item.fields),
                     item.password_mask or "",
                     "remediated" if item.remediated_at else "unremediated",
@@ -435,16 +445,19 @@ async def _finding_views(
             BreachSource.breach_date.desc().nullslast(), Finding.first_seen_at.desc()
         ).limit(_MAX_RESULTS)
     )
-    return tuple(
+    views = tuple(
         FindingView(
             id=finding.id,
             source=source.name,
             breach_date=source.breach_date,
+            breach_date_text=_raw_breach_date(finding.raw, source.extra),
+            collected_date=_raw_date(finding.raw.get("collected")),
             fields=tuple(finding.fields),
             email=finding.email,
             username=finding.username,
             phone=finding.phone,
-            origin=finding.origin,
+            origin=finding.origin or _raw_origin(finding.raw.get("origin")),
+            url=_raw_url(finding.raw),
             password_mask=finding.password_mask,
             has_password=finding.password_sha256 is not None,
             remediated_at=finding.remediated_at,
@@ -455,6 +468,10 @@ async def _finding_views(
         )
         for finding, source in result.all()
     )
+    if filters.source:
+        needle = filters.source.casefold()
+        views = tuple(item for item in views if needle in _raw_value_text(item.raw).casefold())
+    return views
 
 
 async def _event_views(db: AsyncSession, subject_id: uuid.UUID) -> tuple[EventView, ...]:
@@ -480,13 +497,73 @@ def _apply_filters(
         statement = statement.where(Finding.remediated_at.is_not(None))
     elif filters.state == "releaked":
         statement = statement.where(Finding.severity == FindingSeverity.HIGH)
-    if filters.source:
-        statement = statement.where(BreachSource.name_norm == filters.source.casefold())
     if filters.date_from:
         statement = statement.where(BreachSource.breach_date >= filters.date_from)
     if filters.date_to:
         statement = statement.where(BreachSource.breach_date <= filters.date_to)
     return statement
+
+
+def _raw_origin(value: object) -> str | None:
+    if isinstance(value, str):
+        return value
+    if isinstance(value, list):
+        origins = tuple(item.strip() for item in value if isinstance(item, str) and item.strip())
+        return ", ".join(origins) or None
+    return None
+
+
+def _raw_url(raw: dict[str, object]) -> str | None:
+    """Read vendor URL fields without treating arbitrary raw values as links."""
+
+    for key in ("url", "URL"):
+        value = _raw_origin(raw.get(key))
+        if value:
+            return value
+    return None
+
+
+def _raw_date(value: object) -> date | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        return date.fromisoformat(value[:10])
+    except ValueError:
+        return None
+
+
+def _raw_breach_date(raw: dict[str, object], extra: dict[str, object]) -> str | None:
+    raw_source = raw.get("source")
+    raw_value = raw_source.get("breach_date") if isinstance(raw_source, dict) else None
+    for value in (raw_value, extra.get("vendor_breach_date")):
+        if not isinstance(value, str):
+            continue
+        parts = value.split("-")
+        try:
+            if len(parts) == 1 and len(parts[0]) == 4:
+                date(int(parts[0]), 1, 1)
+                return value
+            if len(parts) == 2 and len(parts[0]) == 4 and len(parts[1]) == 2:
+                date(int(parts[0]), int(parts[1]), 1)
+                return value
+            if len(parts) == 3:
+                date.fromisoformat(value)
+                return value
+        except ValueError:
+            continue
+    return None
+
+
+def _raw_value_text(value: object) -> str:
+    """Flatten only JSON leaf values for the analyst search index."""
+
+    if isinstance(value, dict):
+        return " ".join(_raw_value_text(item) for item in value.values())
+    if isinstance(value, list):
+        return " ".join(_raw_value_text(item) for item in value)
+    if value is None:
+        return ""
+    return str(value)
 
 
 async def _query_from_form(request: Request) -> str:

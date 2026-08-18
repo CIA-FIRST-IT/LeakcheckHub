@@ -13,6 +13,7 @@ from app.batches import claim_next, finish_work
 from app.config import get_settings
 from app.db import get_async_session_factory
 from app.models import Scan, ScanStatus, ScanTrigger
+from app.notifications import deliver_next
 from app.platform_settings import PlatformSettingsStore, SettingKey
 from app.scan_runtime import client_from_platform_values, execute_scan
 from app.scheduling import dispatch_due_schedules
@@ -41,6 +42,8 @@ async def run() -> None:
         while True:
             async with sessions() as db:
                 await dispatch_due_schedules(db)
+            async with sessions() as db:
+                await deliver_next(db, store)
             async with sessions() as db:
                 work = await claim_next(db, worker_id)
             if work is None:
