@@ -61,6 +61,7 @@ class Settings(BaseSettings):
     data_key: SecretStr
     trusted_hosts: Annotated[tuple[str, ...], NoDecode] = ("localhost", "127.0.0.1")
     allow_unconfigured_hosts: bool = False
+    run_inprocess_worker: bool = False
 
     @field_validator("database_url")
     @classmethod

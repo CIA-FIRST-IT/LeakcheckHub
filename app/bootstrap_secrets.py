@@ -11,6 +11,10 @@ from pathlib import Path
 from typing import Final
 
 BOOTSTRAP_SECRET_DIR: Final = Path("/run/leakcheck-bootstrap")
+# Binds inside the container network namespace only; Compose publishes the port and a
+# reverse proxy terminates TLS in front of it.
+_BIND_HOST: Final = "0.0.0.0"  # noqa: S104  # nosec B104
+_BIND_PORT: Final = 8000
 _SECRET_FILES: Final = {
     "postgres_password": "postgres-password",
     "migrator_password": "migrator-password",
@@ -44,7 +48,17 @@ def initialize_bootstrap_secrets(directory: Path = BOOTSTRAP_SECRET_DIR) -> None
     """Create missing secrets atomically and leave every existing value unchanged."""
 
     directory.mkdir(mode=0o755, parents=True, exist_ok=True)
-    directory.chmod(0o755)
+    if not os.access(directory, os.W_OK):
+        # A pre-existing volume created by an older image is owned by root, so the unprivileged
+        # runtime user cannot populate it. Say so plainly rather than failing on the first open().
+        msg = (
+            f"bootstrap secret directory is not writable by uid {os.getuid()}: {directory}. "
+            "Remove the bootstrap-secrets volume so it is recreated with the correct ownership. "
+            "This is safe only while no secrets have been generated yet."
+        )
+        raise RuntimeError(msg)
+    if directory.stat().st_uid == os.getuid():
+        directory.chmod(0o755)
     for name in _SECRET_FILES:
         path = _secret_path(directory, name)
         try:
@@ -88,6 +102,8 @@ def runtime_settings(directory: Path = BOOTSTRAP_SECRET_DIR) -> dict[str, object
         # when application-level host allow-listing is required.
         "trusted_hosts": ("*",),
         "allow_unconfigured_hosts": True,
+        # The consolidated stack has no separate worker container.
+        "run_inprocess_worker": True,
     }
 
 
@@ -117,16 +133,33 @@ def _migration_environment(role: str, directory: Path = BOOTSTRAP_SECRET_DIR) ->
 
 
 def _run_migration(role: str) -> None:
-    os.environ.update(_migration_environment(role))
-    if role == "bootstrap":
-        from app.bootstrap_database import main as bootstrap_database
+    environment = _migration_environment(role)
+    os.environ.update(environment)
+    try:
+        if role == "bootstrap":
+            from app.bootstrap_database import main as bootstrap_database
 
-        bootstrap_database()
-        return
-    from alembic import command
-    from alembic.config import Config
+            bootstrap_database()
+            return
+        from alembic import command
+        from alembic.config import Config
 
-    command.upgrade(Config("alembic.ini"), "head")
+        command.upgrade(Config("alembic.ini"), "head")
+    finally:
+        # The web process outlives these steps; privileged database credentials must not
+        # remain readable in its environment once the schema is current.
+        for key in environment:
+            os.environ.pop(key, None)
+
+
+def _serve() -> None:
+    """Bring the schema up to date, then serve the application in this same container."""
+
+    import uvicorn
+
+    _run_migration("bootstrap")
+    _run_migration("migrate")
+    uvicorn.run("app.main:create_app", factory=True, host=_BIND_HOST, port=_BIND_PORT)
 
 
 def main() -> None:
@@ -137,7 +170,10 @@ def main() -> None:
     if action in {"bootstrap", "migrate"}:
         _run_migration(action)
         return
-    raise SystemExit("usage: python -m app.bootstrap_secrets {init|bootstrap|migrate}")
+    if action == "serve":
+        _serve()
+        return
+    raise SystemExit("usage: python -m app.bootstrap_secrets {init|bootstrap|migrate|serve}")
 
 
 if __name__ == "__main__":

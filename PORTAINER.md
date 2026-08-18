@@ -12,10 +12,15 @@ the database passwords, session signing secret, and encryption key with the oper
 random generator. They are saved in a dedicated Docker named volume and mounted read-only into the
 services that need them. Portainer's environment-variable screen never contains the secret values.
 
-The PostgreSQL and bootstrap-secret named volumes are not replaced by an image update. The database
-bootstrap job is safe to run on every redeployment: it creates the least-privilege database roles only
-when the Alembic database is blank, then the migration job upgrades the existing schema before web and
-worker start.
+The stack runs three services: a one-shot `init` job that generates any missing bootstrap secret and
+exits, `postgres`, and `web`. The `web` container creates the least-privilege database roles only when
+the Alembic database is blank, upgrades the existing schema, and then serves the application while
+draining the batch queue in-process. There is no separate worker container: batch scans, schedules,
+and notification delivery run as a supervised background task inside `web`, restarting automatically
+if that task fails.
+
+The PostgreSQL and bootstrap-secret named volumes are not replaced by an image update. Every step is
+safe to repeat on each redeployment.
 
 ## 1. Publish the first image
 
