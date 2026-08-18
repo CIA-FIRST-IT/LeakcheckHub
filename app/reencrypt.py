@@ -10,6 +10,8 @@ from __future__ import annotations
 import argparse
 import asyncio
 import base64
+import getpass
+import secrets
 import sys
 from dataclasses import dataclass, field
 
@@ -137,15 +139,21 @@ async def _run(new_key_value: str, *, dry_run: bool) -> RotationReport:
         await engine.dispose()
 
 
+def generate_key() -> str:
+    """Produce a base64url 32-byte key in the form the application expects."""
+
+    return base64.urlsafe_b64encode(secrets.token_bytes(32)).decode("ascii").rstrip("=")
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         prog="python -m app.reencrypt",
         description="Rotate LC_DATA_KEY across findings, platform settings, and TOTP seeds.",
     )
     parser.add_argument(
-        "--new-key",
-        required=True,
-        help="base64url-encoded 32-byte replacement key; generate with app.reencrypt --generate",
+        "--generate",
+        action="store_true",
+        help="print a new base64url 32-byte key and exit without touching the database",
     )
     parser.add_argument(
         "--dry-run",
@@ -154,7 +162,19 @@ def main() -> None:
     )
     arguments = parser.parse_args()
 
-    report = asyncio.run(_run(arguments.new_key, dry_run=arguments.dry_run))
+    if arguments.generate:
+        print(generate_key())
+        return
+
+    # Deliberately has no --new-key option, matching create_superadmin: a root data key passed as
+    # an argument is visible in shell history and in the process list to every user on the host.
+    new_key_value = getpass.getpass("New data key (base64url, 32 bytes): ").strip()
+    if not new_key_value:
+        raise SystemExit("no key supplied")
+    if getpass.getpass("Confirm new data key: ").strip() != new_key_value:
+        raise SystemExit("the two keys did not match")
+
+    report = asyncio.run(_run(new_key_value, dry_run=arguments.dry_run))
     if report.failures:
         print("rotation aborted; nothing was written", file=sys.stderr)
         for failure in report.failures[:20]:

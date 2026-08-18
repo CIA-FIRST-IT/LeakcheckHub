@@ -119,3 +119,26 @@ def test_decode_key_rejects_keys_that_are_not_256_bit() -> None:
     assert len(decode_key(base64.urlsafe_b64encode(secrets.token_bytes(32)).decode())) == 32
     with pytest.raises(ValueError, match="32 bytes"):
         decode_key(base64.urlsafe_b64encode(secrets.token_bytes(16)).decode())
+
+
+def test_generated_keys_are_fresh_and_decode_to_256_bits() -> None:
+    from app.reencrypt import generate_key
+
+    first, second = generate_key(), generate_key()
+    assert first != second
+    assert len(decode_key(first)) == 32
+
+
+def test_the_cli_never_accepts_the_data_key_as_an_argument(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A key in argv is visible in shell history and to every user on the host via ps."""
+
+    from app import reencrypt
+
+    monkeypatch.setattr("sys.argv", ["app.reencrypt", "--new-key", "should-not-be-accepted"])
+    with pytest.raises(SystemExit) as exc:
+        reencrypt.main()
+
+    # argparse exits 2 on an unrecognised option, so the key never reaches the rotation path.
+    assert exc.value.code == 2

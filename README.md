@@ -83,6 +83,15 @@ pytest
 `requirements.txt` is the production lock. `requirements-dev.txt` adds tools used exclusively by
 quality checks. No test may contact the live LeakCheck API.
 
+## Operations
+
+- [DEPLOYMENT.md](DEPLOYMENT.md) — TLS, network exposure, egress allow-list, secret provisioning,
+  and the pre-production checklist.
+- [RUNBOOK.md](RUNBOOK.md) — backup and restore, root data-key rotation, offboarding, and
+  troubleshooting.
+- [THREAT-MODEL.md](THREAT-MODEL.md) — assets, trust boundaries, controls, and the accepted
+  residual risks.
+
 ## Portainer deployment
 
 Use the Git-backed production stack in `compose.portainer.yaml`. GitHub publishes the application
