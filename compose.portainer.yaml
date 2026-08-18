@@ -1,7 +1,7 @@
 name: leakcheck
 
 x-app-service: &app-service
-  image: ${LC_IMAGE:-ghcr.io/cia-first-it/leakcheckhub:latest}
+  image: ghcr.io/cia-first-it/leakcheckhub:latest
   pull_policy: always
   read_only: true
   tmpfs:
@@ -11,19 +11,15 @@ x-app-service: &app-service
   cap_drop:
     - ALL
 
-x-runtime-environment: &runtime-environment
-  LC_ENVIRONMENT: production
-  LC_DATABASE_URL: postgresql+asyncpg://leakcheck_runtime:${LC_RUNTIME_DB_PASSWORD:?set LC_RUNTIME_DB_PASSWORD in Portainer}@postgres:5432/leakcheck
-  LC_SESSION_SECRET: ${LC_SESSION_SECRET:?set LC_SESSION_SECRET in Portainer}
-  LC_DATA_KEY: ${LC_DATA_KEY:?set LC_DATA_KEY in Portainer}
-  LC_TRUSTED_HOSTS: ${LC_TRUSTED_HOSTS:?set LC_TRUSTED_HOSTS in Portainer}
-  LC_ADMIN_LOGIN_MAX_FAILURES: ${LC_ADMIN_LOGIN_MAX_FAILURES:-5}
-  LC_ADMIN_LOGIN_LOCKOUT_SECONDS: ${LC_ADMIN_LOGIN_LOCKOUT_SECONDS:-900}
-  LC_ADMIN_LOGIN_IP_MAX_FAILURES: ${LC_ADMIN_LOGIN_IP_MAX_FAILURES:-10}
-  LC_ADMIN_LOGIN_IP_WINDOW_SECONDS: ${LC_ADMIN_LOGIN_IP_WINDOW_SECONDS:-900}
-  LC_ADMIN_LOGIN_IP_LOCKOUT_SECONDS: ${LC_ADMIN_LOGIN_IP_LOCKOUT_SECONDS:-900}
-
 services:
+  secrets-init:
+    <<: *app-service
+    user: "0:0"
+    command: ["python", "-m", "app.bootstrap_secrets", "init"]
+    volumes:
+      - bootstrap-secrets:/run/leakcheck-bootstrap
+    network_mode: none
+
   postgres:
     image: postgres:16.8-bookworm
     pull_policy: missing
@@ -31,9 +27,13 @@ services:
     environment:
       POSTGRES_DB: leakcheck
       POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${LC_POSTGRES_PASSWORD:?set LC_POSTGRES_PASSWORD in Portainer}
+      POSTGRES_PASSWORD_FILE: /run/leakcheck-bootstrap/postgres-password
     volumes:
       - postgres-data:/var/lib/postgresql/data
+      - bootstrap-secrets:/run/leakcheck-bootstrap:ro
+    depends_on:
+      secrets-init:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d leakcheck"]
       interval: 5s
@@ -57,11 +57,9 @@ services:
 
   bootstrap:
     <<: *app-service
-    command: ["python", "-m", "app.bootstrap_database"]
-    environment:
-      LC_MIGRATION_DATABASE_URL: postgresql+asyncpg://postgres:${LC_POSTGRES_PASSWORD:?set LC_POSTGRES_PASSWORD in Portainer}@postgres:5432/leakcheck
-      LC_MIGRATOR_DB_PASSWORD: ${LC_MIGRATOR_DB_PASSWORD:?set LC_MIGRATOR_DB_PASSWORD in Portainer}
-      LC_RUNTIME_DB_PASSWORD: ${LC_RUNTIME_DB_PASSWORD:?set LC_RUNTIME_DB_PASSWORD in Portainer}
+    command: ["python", "-m", "app.bootstrap_secrets", "bootstrap"]
+    volumes:
+      - bootstrap-secrets:/run/leakcheck-bootstrap:ro
     depends_on:
       postgres:
         condition: service_healthy
@@ -70,9 +68,9 @@ services:
 
   migrate:
     <<: *app-service
-    command: ["alembic", "upgrade", "head"]
-    environment:
-      LC_MIGRATION_DATABASE_URL: postgresql+asyncpg://leakcheck_migrator:${LC_MIGRATOR_DB_PASSWORD:?set LC_MIGRATOR_DB_PASSWORD in Portainer}@postgres:5432/leakcheck
+    command: ["python", "-m", "app.bootstrap_secrets", "migrate"]
+    volumes:
+      - bootstrap-secrets:/run/leakcheck-bootstrap:ro
     depends_on:
       bootstrap:
         condition: service_completed_successfully
@@ -82,7 +80,8 @@ services:
   web:
     <<: *app-service
     restart: unless-stopped
-    environment: *runtime-environment
+    volumes:
+      - bootstrap-secrets:/run/leakcheck-bootstrap:ro
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -93,7 +92,7 @@ services:
       retries: 5
       start_period: 10s
     ports:
-      - "${LC_HTTP_BIND:-0.0.0.0}:${LC_HTTP_PORT:-8000}:8000"
+      - "8000:8000"
     networks:
       - application
       - database
@@ -102,7 +101,8 @@ services:
     <<: *app-service
     command: ["python", "-m", "app.worker"]
     restart: unless-stopped
-    environment: *runtime-environment
+    volumes:
+      - bootstrap-secrets:/run/leakcheck-bootstrap:ro
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -116,4 +116,5 @@ networks:
     internal: true
 
 volumes:
+  bootstrap-secrets:
   postgres-data:

@@ -7,9 +7,15 @@ This deployment keeps two responsibilities separate:
 - Portainer reads `compose.portainer.yaml` from GitHub and pulls the GHCR image directly. The stack
   never depends on Portainer successfully building a Compose `build:` context.
 
-The PostgreSQL named volume is not replaced by an image update. The bootstrap job is safe to run on
-every redeployment: it creates the least-privilege database roles only when the Alembic database is
-blank, then the migration job upgrades the existing schema before web and worker start.
+The stack requires no environment variables. On its first launch, a one-shot initializer generates
+the database passwords, session signing secret, and encryption key with the operating system's secure
+random generator. They are saved in a dedicated Docker named volume and mounted read-only into the
+services that need them. Portainer's environment-variable screen never contains the secret values.
+
+The PostgreSQL and bootstrap-secret named volumes are not replaced by an image update. The database
+bootstrap job is safe to run on every redeployment: it creates the least-privilege database roles only
+when the Alembic database is blank, then the migration job upgrades the existing schema before web and
+worker start.
 
 ## 1. Publish the first image
 
@@ -34,47 +40,26 @@ source of truth.
 Enable **Re-pull image**. If your Portainer edition provides GitOps updates, also enable **Force
 redeployment**. `pull_policy: always` is included in the Compose file as an additional safeguard.
 
-## 3. Add Portainer environment variables
+## 3. Leave environment variables empty
 
-Add these under the stack's environment variables. Generate three independent database passwords;
-hex output avoids URL-encoding problems in PostgreSQL connection strings.
-
-```sh
-openssl rand -hex 32  # LC_POSTGRES_PASSWORD
-openssl rand -hex 32  # LC_MIGRATOR_DB_PASSWORD
-openssl rand -hex 32  # LC_RUNTIME_DB_PASSWORD
-openssl rand -hex 32  # LC_SESSION_SECRET
-openssl rand -base64 32 | tr '+/' '-_' | tr -d '='  # LC_DATA_KEY
-```
-
-Required variables:
-
-| Variable | Value |
-| --- | --- |
-| `LC_POSTGRES_PASSWORD` | First generated database password |
-| `LC_MIGRATOR_DB_PASSWORD` | Second generated database password |
-| `LC_RUNTIME_DB_PASSWORD` | Third generated database password |
-| `LC_SESSION_SECRET` | Generated session secret |
-| `LC_DATA_KEY` | Base64-URL data key |
-| `LC_TRUSTED_HOSTS` | Public hostname only, for example `leakcheck.example.com` |
-
-Optional variables:
-
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `LC_HTTP_BIND` | `0.0.0.0` | Host interface used for the published port |
-| `LC_HTTP_PORT` | `8000` | Host port mapped to LeakCheck Hub |
-| `LC_IMAGE` | `ghcr.io/cia-first-it/leakcheckhub:latest` | Override registry or tag |
-
-Keep these bootstrap values unchanged across redeployments. In particular, changing `LC_DATA_KEY`
-would make integration secrets already stored in PostgreSQL impossible to decrypt. LeakCheck, Google,
-SMTP, IRIS, Wazuh, users, and roles remain blank on first launch and are configured in the platform's
+Do not add stack environment variables. Deploy the Compose file as supplied. LeakCheck, Google, SMTP,
+IRIS, Wazuh, users, and roles remain blank on first launch and are configured in the platform's
 Settings page.
+
+Back up both named volumes together:
+
+- `leakcheck_postgres-data`
+- `leakcheck_bootstrap-secrets`
+
+The generated encryption key and database passwords intentionally cannot be reconstructed. Losing the
+bootstrap-secret volume while retaining the database volume makes the existing deployment unusable.
 
 ## 4. Put HTTPS in front of the service
 
-Production cookies require HTTPS. Route the configured hostname through the existing reverse proxy
-to the Portainer host's `LC_HTTP_PORT`. Do not expose PostgreSQL; only the web port is published.
+Production cookies require HTTPS. Route the public hostname through the existing reverse proxy to
+port `8000` on the Portainer host. The zero-input stack accepts the hostname supplied by that proxy,
+so the proxy should enforce the intended public hostname. Do not expose PostgreSQL; only the web port
+is published.
 
 ## 5. Automatic updates from GitHub
 
