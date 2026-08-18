@@ -12,6 +12,12 @@ the database passwords, session signing secret, and encryption key with the oper
 random generator. They are saved in a dedicated Docker named volume and mounted read-only into the
 services that need them. Portainer's environment-variable screen never contains the secret values.
 
+The application containers do not set `no-new-privileges` or drop all Linux capabilities. The
+deployment host refused to execute the interpreter under those two settings combined, reporting
+`exec /usr/local/bin/python: operation not permitted`. The containers still run as an unprivileged
+image user, with a read-only root filesystem, on an internal network. If your host tolerates the
+stricter settings, re-add them one service at a time and confirm the stack still starts.
+
 The stack runs three services: a one-shot `init` job that generates any missing bootstrap secret and
 exits, `postgres`, and `web`. The `web` container creates the least-privilege database roles only when
 the Alembic database is blank, upgrades the existing schema, and then serves the application while

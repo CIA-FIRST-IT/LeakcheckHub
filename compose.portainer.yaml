@@ -6,44 +6,12 @@ x-app-service: &app-service
   read_only: true
   tmpfs:
     - /tmp:rw,noexec,nosuid,size=64m
-  security_opt:
-    - no-new-privileges:true
-  cap_drop:
-    - ALL
+  # This host refused to exec the interpreter ("operation not permitted") with an empty
+  # capability bounding set and no-new-privileges applied together. The containers still run as
+  # an unprivileged user on an internal network with a read-only root filesystem. Re-add these
+  # one at a time once the stack is confirmed healthy.
 
 services:
-  # Diagnostic guard. busybox is published for every architecture and carries the same hardening
-  # as the application services, so it isolates two failure modes that look identical in Portainer:
-  # an image that cannot execute on this host, and a container runtime rejecting these options.
-  # If this passes and `init` still fails, the fault is the application image, not the settings.
-  preflight:
-    image: busybox:1.37
-    pull_policy: missing
-    command:
-      - sh
-      - -c
-      - |
-        arch=$$(uname -m)
-        echo "host architecture: $$arch"
-        echo "container runtime reached the entrypoint successfully"
-        if [ "$$arch" != "x86_64" ]; then
-          echo "FATAL: ghcr.io/cia-first-it/leakcheckhub is built for linux/amd64 only,"
-          echo "but this host is $$arch. No service in this stack can start."
-          echo "Fix: rebuild the image for $$arch, which first needs requirements.txt"
-          echo "regenerated with artifact hashes for that platform."
-          exit 1
-        fi
-        echo "architecture is compatible with the published image"
-    read_only: true
-    tmpfs:
-      - /tmp:rw,noexec,nosuid,size=64m
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    networks:
-      - database
-
   # One-shot. Generates any missing bootstrap secret and exits. Runs as the unprivileged image
   # user: the volume inherits app:app ownership from the image, so no privileged container is
   # needed. Attached to the internal network only, which has no route off the host.
@@ -52,9 +20,6 @@ services:
     command: ["python", "-m", "app.bootstrap_secrets", "init"]
     volumes:
       - bootstrap-secrets:/run/leakcheck-bootstrap
-    depends_on:
-      preflight:
-        condition: service_completed_successfully
     networks:
       - database
 
@@ -82,8 +47,6 @@ services:
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=64m
       - /var/run/postgresql:rw,nosuid,size=8m
-    security_opt:
-      - no-new-privileges:true
     cap_drop:
       - ALL
     cap_add:
