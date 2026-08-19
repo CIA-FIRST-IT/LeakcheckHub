@@ -17,6 +17,7 @@ from starlette.requests import Request
 from app.analyst_ui import (
     EventView,
     FindingView,
+    RecentSubject,
     _breach_date_cell,
     analyst_dashboard,
     scan_status_fragment,
@@ -369,3 +370,43 @@ def test_every_authenticated_page_offers_a_sign_out_control() -> None:
     assert 'id="sign-out"' in markup
     # A GET link would let a prefetch or an <img> tag end the session; logout is POST + CSRF.
     assert '<a href="/auth/logout"' not in markup
+
+
+def _recent(actor: str | None, trigger: ScanTrigger | None) -> RecentSubject:
+    return RecentSubject(subject=make_subject(), actor=actor, trigger=trigger)
+
+
+def test_the_investigation_trail_names_who_ran_the_search() -> None:
+    """The trail is an accountability record; a subject without a searcher is half a record."""
+
+    body = analyst_dashboard(
+        make_user(), (_recent("investigator@example.test", ScanTrigger.MANUAL),)
+    )
+
+    assert "searched by investigator@example.test" in body
+
+
+@pytest.mark.parametrize(
+    ("trigger", "expected"),
+    [
+        (ScanTrigger.SCHEDULED, "scheduled scan"),
+        (ScanTrigger.BATCH, "batch scan"),
+        (ScanTrigger.SELF, "self-check"),
+        (None, "unknown"),
+    ],
+)
+def test_automated_scans_are_attributed_to_their_trigger(
+    trigger: ScanTrigger | None, expected: str
+) -> None:
+    """Batch and scheduled scans have no requesting user; they must not read as anonymous."""
+
+    body = analyst_dashboard(make_user(), (_recent(None, trigger),))
+
+    assert f"searched by {expected}" in body
+
+
+def test_a_searcher_address_cannot_inject_markup() -> None:
+    body = analyst_dashboard(make_user(), (_recent('"><script>alert(1)</script>', None),))
+
+    assert "<script>alert(1)</script>" not in body
+    assert "&lt;script&gt;" in body

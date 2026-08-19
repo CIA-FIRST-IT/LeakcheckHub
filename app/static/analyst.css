@@ -169,3 +169,10 @@ footer { padding: 2rem; color: var(--muted); text-align: center; border-top: 1px
   cursor: progress;
   opacity: 0.5;
 }
+
+.searched-by {
+  display: block;
+  margin-top: 0.15rem;
+  font-size: 0.8rem;
+  opacity: 0.7;
+}

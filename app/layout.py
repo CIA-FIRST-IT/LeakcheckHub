@@ -12,7 +12,7 @@ import html
 
 from app.models import User, UserRole
 
-_STYLESHEET = "/static/analyst.css?v=8"
+_STYLESHEET = "/static/analyst.css?v=9"
 _SCRIPT = "/static/analyst.js?v=7"
 
 

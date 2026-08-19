@@ -19,6 +19,7 @@ from sqlalchemy.orm import undefer
 from app.analyst_ui import (
     EventView,
     FindingView,
+    RecentSubject,
     analyst_dashboard,
     remediation_markup,
     scan_progress_page,
@@ -88,10 +89,30 @@ async def dashboard(
     current_user: User = Depends(_ANALYST_GUARD),  # noqa: B008
     db: AsyncSession = Depends(get_db_session),  # noqa: B008
 ) -> HTMLResponse:
-    result = await db.execute(
-        select(Subject).order_by(Subject.last_scanned_at.desc().nullslast()).limit(20)
+    # One row per subject: its most recent scan, and who asked for it. DISTINCT ON is PostgreSQL
+    # only, which this application already requires.
+    latest_scan = (
+        select(
+            Scan.subject_id.label("subject_id"),
+            Scan.trigger.label("trigger"),
+            User.email.label("actor"),
+        )
+        .join(User, Scan.requested_by == User.id, isouter=True)
+        .distinct(Scan.subject_id)
+        .order_by(Scan.subject_id, Scan.started_at.desc())
+        .subquery()
     )
-    body = analyst_dashboard(current_user, tuple(result.scalars()))
+    result = await db.execute(
+        select(Subject, latest_scan.c.actor, latest_scan.c.trigger)
+        .join(latest_scan, latest_scan.c.subject_id == Subject.id, isouter=True)
+        .order_by(Subject.last_scanned_at.desc().nullslast())
+        .limit(20)
+    )
+    recent = tuple(
+        RecentSubject(subject=subject, actor=actor, trigger=trigger)
+        for subject, actor, trigger in result.all()
+    )
+    body = analyst_dashboard(current_user, recent)
     return _html(body)
 
 

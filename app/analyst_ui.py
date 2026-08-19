@@ -10,7 +10,15 @@ from typing import Final
 
 from app.layout import esc as _h
 from app.layout import page
-from app.models import FindingEventType, Scan, ScanStatus, Subject, SubjectKind, User
+from app.models import (
+    FindingEventType,
+    Scan,
+    ScanStatus,
+    ScanTrigger,
+    Subject,
+    SubjectKind,
+    User,
+)
 
 _KINDS: Final = (
     SubjectKind.DOMAIN,
@@ -52,18 +60,42 @@ class EventView:
     meta: dict[str, object]
 
 
-def analyst_dashboard(user: User, recent_subjects: tuple[Subject, ...]) -> str:
+@dataclass(frozen=True, slots=True)
+class RecentSubject:
+    """A scanned subject and who last searched for it."""
+
+    subject: Subject
+    actor: str | None
+    trigger: ScanTrigger | None
+
+    def attribution(self) -> str:
+        """Name the person who ran the search, or the automation that did."""
+
+        if self.actor:
+            return self.actor
+        if self.trigger is ScanTrigger.SCHEDULED:
+            return "scheduled scan"
+        if self.trigger is ScanTrigger.BATCH:
+            return "batch scan"
+        if self.trigger is ScanTrigger.SELF:
+            return "self-check"
+        return "unknown"
+
+
+def analyst_dashboard(user: User, recent_subjects: tuple[RecentSubject, ...]) -> str:
     cards = "".join(_check_card(kind) for kind in _KINDS)
     recent = (
         "".join(
             '<li><a href="/analyst/subjects/'
-            + str(subject.id)
+            + str(item.subject.id)
             + '"><span class="kind">'
-            + _h(subject.kind.value)
+            + _h(item.subject.kind.value)
             + "</span> "
-            + _h(subject.value_display)
-            + "</a></li>"
-            for subject in recent_subjects
+            + _h(item.subject.value_display)
+            + '</a><span class="searched-by">searched by '
+            + _h(item.attribution())
+            + "</span></li>"
+            for item in recent_subjects
         )
         or '<li class="empty">No scans have been run yet.</li>'
     )
