@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
-import html
 import json
 import uuid
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from typing import Final
 
-from app.models import FindingEventType, Scan, ScanStatus, Subject, SubjectKind, User, UserRole
+from app.layout import esc as _h
+from app.layout import page
+from app.models import FindingEventType, Scan, ScanStatus, Subject, SubjectKind, User
 
 _KINDS: Final = (
     SubjectKind.DOMAIN,
@@ -378,57 +379,6 @@ def remediation_markup(finding_id: uuid.UUID, *, remediated: bool) -> str:
     )
 
 
-def page(
-    title: str,
-    content: str,
-    *,
-    user: User,
-    extra_styles: tuple[str, ...] = (),
-    extra_scripts: tuple[str, ...] = (),
-) -> str:
-    admin_links = ""
-    if user.role is UserRole.SUPER_ADMIN:
-        admin_links = (
-            '<a href="/admin/settings">Settings</a>'
-            '<a href="/admin/audit">Audit</a>'
-            '<a href="/account/profile">Profile</a>'
-        )
-    styles = "".join(f'<link rel="stylesheet" href="{_h(path)}">' for path in extra_styles)
-    scripts = "".join(f'<script src="{_h(path)}" defer></script>' for path in extra_scripts)
-    return "".join(
-        (
-            '<!doctype html><html lang="en"><head><meta charset="utf-8">',
-            '<meta name="viewport" content="width=device-width,initial-scale=1">',
-            '<meta name="htmx-config" content=\'',
-            '{"includeIndicatorStyles":false,"allowEval":false,"allowScriptTags":false}',
-            "'>",
-            f"<title>{_h(title)} · LeakCheck Hub</title>",
-            '<link rel="stylesheet" href="/static/analyst.css?v=8">',
-            styles,
-            '<script src="/static/htmx-2.0.10.min.js" defer></script>',
-            '<script src="/static/analyst.js?v=7" defer></script>',
-            scripts,
-            "</head><body>",
-            '<header class="topbar"><a class="brand" href="/analyst">',
-            '<span class="brand-mark" aria-hidden="true">L</span><span>LeakCheck Hub</span></a>',
-            '<nav aria-label="Primary"><a href="/analyst">Scan</a>',
-            admin_links,
-            '<a href="/analyst/schedules">Schedule</a>',
-            '</nav><div class="user-chip"><span>',
-            _h(user.email),
-            "</span><small>",
-            _h(user.role.value.replace("_", " ")),
-            "</small></div>",
-            '<button type="button" id="sign-out" class="signout">Sign out</button>',
-            "</header><main>",
-            content,
-            "</main><footer>Controlled exposure intelligence · ",
-            "Cleartext credentials are reveal-only</footer>",
-            "</body></html>",
-        )
-    )
-
-
 def _check_card(kind: SubjectKind) -> str:
     descriptions = {
         SubjectKind.DOMAIN: "Review exposure across a company domain.",
@@ -506,7 +456,3 @@ def _option(value: str, label: str, selected: str) -> str:
 
 def _dt(value: datetime) -> str:
     return _h(value.astimezone(UTC).strftime("%d-%m-%Y %H:%M"))
-
-
-def _h(value: object) -> str:
-    return html.escape(str(value), quote=True)

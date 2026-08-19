@@ -15,7 +15,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import undefer
 
 from app import branding
-from app.analyst_ui import page
 from app.audit import audit_event
 from app.auth.authorization import get_session_manager_for_request, require_role
 from app.auth.csrf import CSRFProtector
@@ -40,6 +39,7 @@ from app.auth.local import (
 )
 from app.auth.session import SESSION_COOKIE_NAME, SessionManager
 from app.db import get_db_session
+from app.layout import page
 from app.models import AdminCredential, User, UserRole
 from app.platform_settings import PlatformSettingsStore, SettingKey
 from app.totp_qr import provisioning_qr_svg

@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-import html
 import uuid
 from dataclasses import dataclass
 
-from app.analyst_ui import page
+from app.layout import esc as _h
+from app.layout import page
 from app.models import User, WatchlistEntry
 
 
@@ -79,7 +79,3 @@ def _toggle_cell(entry_id: uuid.UUID, channel: str, value: bool) -> str:
 def _checkbox(name: str, label: str, checked: bool) -> str:
     marker = " checked" if checked else ""
     return f'<label><input type="checkbox" name="{name}" value="true"{marker}> {_h(label)}</label>'
-
-
-def _h(value: str | uuid.UUID) -> str:
-    return html.escape(str(value), quote=True)

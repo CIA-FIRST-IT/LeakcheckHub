@@ -7,15 +7,13 @@ signed-in users ended up with no way to sign out.
 
 from __future__ import annotations
 
-import re
 import uuid
 from pathlib import Path
 
 import pytest
 
-from app.analyst_ui import page as analyst_page
+from app.layout import page
 from app.models import User, UserRole, UserSource
-from app.user_ui import _page as portal_page
 
 _APP = Path(__file__).resolve().parent.parent / "app"
 
@@ -32,20 +30,38 @@ def _user(role: UserRole) -> User:
 
 
 @pytest.mark.parametrize("role", [UserRole.USER, UserRole.ANALYST, UserRole.SUPER_ADMIN])
-def test_the_analyst_shell_always_offers_sign_out(role: UserRole) -> None:
-    assert 'id="sign-out"' in analyst_page("Scan", "<p>x</p>", user=_user(role))
+def test_every_role_can_sign_out(role: UserRole) -> None:
+    assert 'id="sign-out"' in page("Scan", "<p>x</p>", user=_user(role))
 
 
-def test_the_user_portal_shell_offers_sign_out() -> None:
-    """Ordinary users reach the portal, never the analyst shell."""
+def test_an_ordinary_user_sees_no_analyst_navigation() -> None:
+    """A user reaching a shared page, such as MFA enrollment, must not be offered analyst links."""
 
-    assert 'id="sign-out"' in portal_page("Portal", "<p>x</p>", _user(UserRole.USER))
+    markup = page("Account security", "<p>x</p>", user=_user(UserRole.USER))
+
+    assert 'href="/analyst"' not in markup
+    assert 'href="/admin/settings"' not in markup
+    assert 'href="/portal"' in markup
 
 
-def test_every_shell_requests_the_same_asset_versions() -> None:
-    """A stale ?v= pin serves an older script, so a shell can carry markup its JS cannot drive."""
+def test_an_analyst_sees_scanning_but_not_administration() -> None:
+    markup = page("Scan", "<p>x</p>", user=_user(UserRole.ANALYST))
 
-    sources = "\n".join((_APP / name).read_text() for name in ("analyst_ui.py", "user_ui.py"))
-    for asset in ("analyst.css", "analyst.js"):
-        versions = set(re.findall(rf"/static/{re.escape(asset)}\?v=(\d+)", sources))
-        assert len(versions) == 1, f"{asset} is pinned to more than one version: {sorted(versions)}"
+    assert 'href="/analyst"' in markup
+    assert 'href="/admin/settings"' not in markup
+
+
+def test_a_super_admin_sees_the_administration_links() -> None:
+    markup = page("Scan", "<p>x</p>", user=_user(UserRole.SUPER_ADMIN))
+
+    assert 'href="/admin/settings"' in markup
+    assert 'href="/admin/audit"' in markup
+
+
+def test_only_one_page_shell_exists() -> None:
+    """Two hand-maintained shells drifted apart; the duplication must not come back."""
+
+    shells = [p.name for p in _APP.rglob("*.py") if "<!doctype html>" in p.read_text()]
+
+    # The unauthenticated sign-in page is deliberately separate; it has no session to render.
+    assert sorted(shells) == ["auth.py", "layout.py"], shells

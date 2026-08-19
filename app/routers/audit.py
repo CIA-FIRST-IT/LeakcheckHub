@@ -15,9 +15,9 @@ from fastapi.responses import HTMLResponse
 from sqlalchemy import Select, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.analyst_ui import page
 from app.auth.authorization import require_role
 from app.db import get_db_session
+from app.layout import page
 from app.models import AuditLog, User, UserRole
 
 router = APIRouter(prefix="/admin", tags=["admin"])

@@ -2,9 +2,10 @@
 
 from __future__ import annotations
 
-import html
 from collections.abc import Mapping
 
+from app.layout import esc as _h
+from app.layout import page
 from app.models import Scan, ScanStatus, User
 
 
@@ -35,7 +36,7 @@ def dashboard_page(user: User, findings: tuple[dict[str, object], ...], *, can_c
             "</section>",
         )
     )
-    return _page("My exposure dashboard", content, user)
+    return page("My exposure dashboard", content, user=user)
 
 
 def progress_page(user: User, scan: Scan) -> str:
@@ -50,7 +51,7 @@ def progress_page(user: User, scan: Scan) -> str:
             "</section>",
         )
     )
-    return _page("Self-check progress", content, user)
+    return page("Self-check progress", content, user=user)
 
 
 def progress_fragment(scan: Scan) -> str:
@@ -127,33 +128,3 @@ def _finding_card(item: Mapping[str, object]) -> str:
             "</article>",
         )
     )
-
-
-def _page(title: str, content: str, user: User) -> str:
-    return "".join(
-        (
-            '<!doctype html><html lang="en"><head><meta charset="utf-8">',
-            '<meta name="viewport" content="width=device-width,initial-scale=1">',
-            '<meta name="htmx-config" content=\'',
-            '{"includeIndicatorStyles":false,"allowEval":false,"allowScriptTags":false}',
-            "'>",
-            f"<title>{_h(title)} · LeakCheck Hub</title>",
-            '<link rel="stylesheet" href="/static/analyst.css?v=8">',
-            '<script src="/static/htmx-2.0.10.min.js" defer></script>',
-            '<script src="/static/analyst.js?v=7" defer></script></head><body>',
-            '<header class="topbar user-topbar"><a class="brand" href="/portal">',
-            '<span class="brand-mark" aria-hidden="true">L</span><span>LeakCheck Hub</span></a>',
-            '<div class="user-chip"><span>',
-            _h(user.email),
-            "</span><small>private account</small></div>",
-            '<button type="button" id="sign-out" class="signout">Sign out</button>',
-            "</header><main>",
-            content,
-            "</main><footer>Your signed-in identity defines every result on this page</footer>",
-            "</body></html>",
-        )
-    )
-
-
-def _h(value: object) -> str:
-    return html.escape(str(value), quote=True)

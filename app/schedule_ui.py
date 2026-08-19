@@ -2,10 +2,10 @@
 
 from __future__ import annotations
 
-import html
 from datetime import datetime
 
-from app.analyst_ui import page
+from app.layout import esc as _h
+from app.layout import page
 from app.models import Schedule, User
 
 
@@ -65,7 +65,3 @@ def _row(schedule: Schedule) -> str:
             '<button type="submit" class="secondary">Delete</button></form></td></tr>',
         )
     )
-
-
-def _h(value: str) -> str:
-    return html.escape(value, quote=True)

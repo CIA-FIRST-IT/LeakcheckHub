@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-import html
-
-from app.analyst_ui import page
+from app.layout import esc as _h
+from app.layout import page
 from app.models import BatchStatus, ScanBatch, User
 
 
@@ -76,7 +75,3 @@ def batch_progress_fragment(batch: ScanBatch) -> str:
         f"<p>{done} of {batch.total_count} processed; {batch.failed_count} failed.</p>"
         f'<progress value="{done}" max="{max(batch.total_count, 1)}">{done}</progress></div>'
     )
-
-
-def _h(value: str) -> str:
-    return html.escape(value, quote=True)

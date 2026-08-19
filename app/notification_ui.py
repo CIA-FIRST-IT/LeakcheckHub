@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-import html
-
-from app.analyst_ui import page
+from app.layout import esc as _h
+from app.layout import page
 from app.models import Notification, User
 
 
@@ -55,7 +54,3 @@ def confirmation_page(user: User, target_type: str, target: str, recipient_count
         )
     )
     return page("Confirm notifications", content, user=user)
-
-
-def _h(value: str) -> str:
-    return html.escape(value, quote=True)

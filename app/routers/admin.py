@@ -19,7 +19,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app import branding
 from app.alerts import enqueue_test_alert
-from app.analyst_ui import page
 from app.audit import audit_event
 from app.auth.authorization import require_role
 from app.auth.local import normalise_admin_email, normalise_display_name
@@ -31,6 +30,7 @@ from app.google_workspace import (
     configured_workspace_client,
     sync_workspace_users,
 )
+from app.layout import page
 from app.models import AlertSinkName, Scan, Session, User, UserRole, UserSource
 from app.platform_settings import (
     SECRET_KEYS,
