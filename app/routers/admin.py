@@ -459,6 +459,36 @@ async def settings_page(
     return HTMLResponse(body, headers={"Cache-Control": "no-store"})
 
 
+def _validation_detail(error: ValidationError) -> str:
+    """Say which setting was rejected and why, without echoing what was submitted.
+
+    Only the field name and the validator's own static message are used. Pydantic also carries the
+    offending input, which must never be reflected: these fields include API keys, a service-account
+    private key, and SMTP and SIEM passwords.
+    """
+
+    problems: list[str] = []
+    for item in error.errors():
+        field = str(item["loc"][0]) if item.get("loc") else "request"
+        label = _SETTING_LABELS.get(SettingKey(field), field) if _is_setting(field) else field
+        message = str(item.get("msg", "is invalid")).removeprefix("Value error, ")
+        if _is_setting(field) and SettingKey(field) in SECRET_KEYS:
+            # Naming the constraint on a secret field would describe the value itself.
+            problems.append(f"{label} was rejected")
+        else:
+            problems.append(f"{label}: {message}")
+    unique = list(dict.fromkeys(problems))
+    return "; ".join(unique[:4]) or "One or more settings are invalid."
+
+
+def _is_setting(field: str) -> bool:
+    try:
+        SettingKey(field)
+    except ValueError:
+        return False
+    return True
+
+
 @router.post("/settings", response_model=None)
 async def update_settings(
     request: Request,
@@ -471,8 +501,7 @@ async def update_settings(
     try:
         payload = SettingsUpdate.model_validate(await _json_body(request))
     except ValidationError as exc:
-        # Never reflect a submitted API key, private key, or password through validation details.
-        raise HTTPException(status_code=422, detail="One or more settings are invalid.") from exc
+        raise HTTPException(status_code=422, detail=_validation_detail(exc)) from exc
     raw = payload.model_dump(exclude_unset=True)
     values: dict[SettingKey, str | None] = {}
     for name, value in raw.items():

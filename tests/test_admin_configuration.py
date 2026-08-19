@@ -231,3 +231,51 @@ def test_a_blank_secret_offers_no_keep_existing_hint() -> None:
     markup = _setting_input(SettingKey.LEAKCHECK_API_KEY, configured=False)
 
     assert 'placeholder=""' in markup
+
+
+def test_validation_errors_name_the_setting_that_was_rejected() -> None:
+    """A single bad field rejects the whole form, so it has to say which one."""
+
+    from app.routers.admin import _validation_detail
+
+    with pytest.raises(ValidationError) as exc:
+        SettingsUpdate(google_redirect_uri="http://10.40.48.130:8800/auth/google/callback")
+
+    detail = _validation_detail(exc.value)
+    assert "google_redirect_uri" in detail
+    assert "HTTPS" in detail
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("leakcheck_api_key", "super-secret-api-key-value"),
+        ("google_client_secret", "super-secret-client-secret"),
+        ("smtp_password", "super-secret-smtp-password"),
+        ("google_workspace_service_account_json", "super-secret-not-json"),
+    ],
+)
+def test_a_rejected_secret_is_never_echoed_back(field: str, value: str) -> None:
+    """Validation detail reaches the browser; it must not carry the submitted credential."""
+
+    from app.routers.admin import _validation_detail
+
+    try:
+        SettingsUpdate(**{field: value * 400})
+    except ValidationError as exc:
+        detail = _validation_detail(exc)
+        assert value not in detail
+        assert "rejected" in detail
+    else:  # pragma: no cover - the oversized value must fail
+        pytest.fail("expected the oversized secret to be rejected")
+
+
+def test_several_invalid_settings_are_reported_together() -> None:
+    from app.routers.admin import _validation_detail
+
+    with pytest.raises(ValidationError) as exc:
+        SettingsUpdate(smtp_port=99999, leakcheck_rps=999)
+
+    detail = _validation_detail(exc.value)
+    assert "smtp_port" in detail
+    assert "leakcheck_rps" in detail
