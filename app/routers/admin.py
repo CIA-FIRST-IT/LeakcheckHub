@@ -453,8 +453,8 @@ async def settings_page(
         "Settings",
         content,
         user=current_user,
-        extra_styles=("/static/admin-settings.css?v=6",),
-        extra_scripts=("/static/admin-settings.js?v=6",),
+        extra_styles=("/static/admin-settings.css?v=7",),
+        extra_scripts=("/static/admin-settings.js?v=7",),
     )
     return HTMLResponse(body, headers={"Cache-Control": "no-store"})
 

@@ -80,3 +80,21 @@ button.is-error {
 .panel-actions small {
   opacity: 0.65;
 }
+
+/* Save outcome, shown beside the control that was pressed. */
+.panel-status {
+  font-size: 0.85rem;
+  opacity: 0.85;
+}
+
+.panel-status.is-error {
+  font-weight: 600;
+  color: #b3261e;
+  opacity: 1;
+}
+
+@media (prefers-color-scheme: dark) {
+  .panel-status.is-error {
+    color: #ff8a80;
+  }
+}

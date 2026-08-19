@@ -26,6 +26,29 @@ function applyConfiguredState(configured) {
   }
 }
 
+// Report next to the control that was pressed. A single status line at the foot of the page is
+// off-screen when the panel being saved is at the top, which made a rejected field look like a
+// silent no-op rather than an error.
+function report(button, message, ok) {
+  const globalResult = document.querySelector("#result");
+  if (globalResult) globalResult.textContent = message;
+  const host = button?.closest(".panel-actions") || button?.parentElement;
+  if (!host) return;
+  let status = host.querySelector(".panel-status");
+  if (!status) {
+    status = document.createElement("span");
+    status.className = "panel-status";
+    host.appendChild(status);
+  }
+  status.textContent = message;
+  status.classList.toggle("is-error", !ok);
+  status.setAttribute("role", ok ? "status" : "alert");
+  window.clearTimeout(Number(status.dataset.timer));
+  if (ok && message) {
+    status.dataset.timer = String(window.setTimeout(() => { status.textContent = ""; }, 6000));
+  }
+}
+
 function setBusy(button, busy, label) {
   if (!button) return;
   button.disabled = busy;
@@ -47,9 +70,8 @@ function flash(button, ok) {
 
 async function submitJson(form, url) {
   const button = form.querySelector('button[type="submit"]');
-  const result = document.querySelector("#result");
   setBusy(button, true, "Saving…");
-  result.textContent = "";
+  report(button, "", true);
   try {
     await fetch("/auth/csrf", { credentials: "same-origin" });
     const payload = Object.fromEntries(new FormData(form).entries());
@@ -70,18 +92,18 @@ async function submitJson(form, url) {
     if (response.ok) {
       applyConfiguredState(body.configured);
       const count = Array.isArray(body.updated) ? body.updated.length : 0;
-      result.textContent = count ? `Saved ${count} setting${count === 1 ? "" : "s"}.` : "Saved.";
+      report(button, count ? `Saved ${count} setting${count === 1 ? "" : "s"}.` : "Saved.", true);
       form.reset();
     } else {
       // A 422 carries the field that failed validation; show it instead of a bare status code.
       const detail = Array.isArray(body.detail)
         ? body.detail.map((d) => d.msg || "").filter(Boolean).join("; ")
         : body.detail;
-      result.textContent = detail || `Failed (${response.status}).`;
+      report(button, detail || `Failed (${response.status}).`, false);
     }
     flash(button, response.ok);
   } catch (error) {
-    result.textContent = "Could not reach the server.";
+    report(button, "Could not reach the server.", false);
     flash(button, false);
   } finally {
     setBusy(button, false);
@@ -100,7 +122,7 @@ if (workspaceSync) {
         credentials: "same-origin",
         headers: { "X-CSRF-Token": cookieValue("__Host-leakcheck-csrf") },
       });
-      result.textContent = response.ok ? "Workspace users synchronized." : "Workspace sync failed.";
+      report(workspaceSync, response.ok ? "Workspace users synchronized." : "Workspace sync failed.", response.ok);
     } finally {
       workspaceSync.disabled = false;
     }
@@ -131,7 +153,7 @@ for (const button of document.querySelectorAll("[data-test-alert]")) {
       credentials: "same-origin",
       headers: { "X-CSRF-Token": cookieValue("__Host-leakcheck-csrf") },
     });
-    result.textContent = response.ok ? "Test alert queued." : "Could not queue test alert.";
+    report(button, response.ok ? "Test alert queued." : "Could not queue test alert.", response.ok);
   });
 }
 
@@ -156,10 +178,10 @@ for (const button of document.querySelectorAll("[data-save-user]")) {
         body: JSON.stringify(payload),
       });
       if (response.ok) {
-        result.textContent = "User updated.";
+        report(button, "User updated.", true);
       } else {
         const body = await response.json().catch(() => ({}));
-        result.textContent = body.detail || `Failed (${response.status}).`;
+        report(button, body.detail || `Failed (${response.status}).`, false);
       }
     } finally {
       button.disabled = false;
@@ -181,9 +203,7 @@ for (const button of document.querySelectorAll("[data-revoke-sessions]")) {
         headers: { "X-CSRF-Token": cookieValue("__Host-leakcheck-csrf") },
       });
       const body = await response.json().catch(() => ({}));
-      result.textContent = response.ok
-        ? `Revoked ${body.revoked} session(s).`
-        : body.detail || `Failed (${response.status}).`;
+      report(button, response.ok ? `Revoked ${body.revoked} session(s).` : body.detail || `Failed (${response.status}).`, response.ok);
     } finally {
       button.disabled = false;
     }
@@ -212,7 +232,7 @@ async function postBranding(payload, button, okMessage) {
     });
     const body = await response.json().catch(() => ({}));
     if (response.ok) {
-      result.textContent = okMessage;
+      report(button, okMessage, true);
       const preview = document.querySelector("#logo-preview");
       if (preview) {
         preview.innerHTML = body.has_logo
@@ -220,11 +240,11 @@ async function postBranding(payload, button, okMessage) {
           : "No logo uploaded.";
       }
     } else {
-      result.textContent = body.detail || `Failed (${response.status}).`;
+      report(button, body.detail || `Failed (${response.status}).`, false);
     }
     flash(button, response.ok);
   } catch (error) {
-    result.textContent = "Could not reach the server.";
+    report(button, "Could not reach the server.", false);
     flash(button, false);
   } finally {
     setBusy(button, false);
@@ -239,7 +259,7 @@ document.querySelector("#branding-form")?.addEventListener("submit", async (even
   const payload = { organization_name: form.querySelector('[name="organization_name"]').value };
   if (file) {
     if (file.size > 1024 * 1024) {
-      result.textContent = "The logo exceeds 1 MB.";
+      report(button, "The logo exceeds 1 MB.", false);
       flash(button, false);
       return;
     }
