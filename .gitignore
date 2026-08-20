@@ -26,6 +26,7 @@ postgres-data/
 /TODO.md
 /plan.md
 /THREAT-MODEL.md
+/HANDOFF.md
 /notes/
 *.local.md
 
